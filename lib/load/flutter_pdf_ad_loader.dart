@@ -32,12 +32,17 @@ class FlutterPdfAdLoader<K> {
   final String Function(K placement)? _placementLabelBuilder;
 
   final Map<K, List<AdInfoBean>> _configs = {};
-  final Map<K, LoadedAdCacheEntry> _cacheMap = {};
+  final Map<K, List<LoadedAdCacheEntry>> _cacheMap = {};
   final Map<K, Future<LoadedAdCacheEntry?>> _loadingTasks = {};
+  final Map<K, int> _activeRequestCounts = {};
 
   Map<K, List<AdInfoBean>> get configs => Map.unmodifiable(_configs);
 
-  Map<K, LoadedAdCacheEntry> get cacheMap => Map.unmodifiable(_cacheMap);
+  Map<K, LoadedAdCacheEntry> get cacheMap {
+    return Map<K, LoadedAdCacheEntry>.unmodifiable(
+      _cacheMap.map((key, value) => MapEntry(key, value.first)),
+    );
+  }
 
   void updateConfigs(Map<K, List<AdInfoBean>> configs) {
     _configs
@@ -73,8 +78,8 @@ class FlutterPdfAdLoader<K> {
       }
 
       final cachedEntry = _cacheMap[placement];
-      if (cachedEntry != null) {
-        return cachedEntry;
+      if (cachedEntry != null && cachedEntry.isNotEmpty) {
+        return cachedEntry.first;
       }
     }
 
@@ -98,15 +103,12 @@ class FlutterPdfAdLoader<K> {
   }
 
   Future<LoadedAdCacheEntry?> getCachedEntry(K placement) async {
-    final cacheExpired = await _evictExpiredCacheIfNeeded(
-      placement,
-      reloadOnExpire: false,
-    );
-    if (cacheExpired) {
-      _logCacheExpired(placement, trigger: 'read');
+    await _evictExpiredCacheIfNeeded(placement, reloadOnExpire: false);
+    final entries = _cacheMap[placement];
+    if (entries == null || entries.isEmpty) {
       return null;
     }
-    return _cacheMap[placement];
+    return entries.first;
   }
 
   Future<Ad?> getCachedAd(K placement) async {
@@ -125,67 +127,123 @@ class FlutterPdfAdLoader<K> {
     K placement, {
     OnUserEarnedRewardCallback? onUserEarnedReward,
   }) async {
-    final cacheExpired = await _evictExpiredCacheIfNeeded(
+    final result = await showCachedAdWithResult(
       placement,
-      reloadOnExpire: true,
+      onUserEarnedReward: onUserEarnedReward,
     );
-    if (cacheExpired) {
-      _logCacheExpired(placement, trigger: 'show');
-      return false;
-    }
+    return result.shown;
+  }
 
-    final entry = _cacheMap[placement];
+  Future<ShowAdResult> showCachedAdWithResult(
+    K placement, {
+    OnUserEarnedRewardCallback? onUserEarnedReward,
+  }) async {
+    await _evictExpiredCacheIfNeeded(placement, reloadOnExpire: true);
+
+    final entries = _cacheMap[placement];
+    final entry = entries == null || entries.isEmpty ? null : entries.first;
     if (entry == null) {
-      return false;
+      return const ShowAdResult.failure('no-cached-ad');
     }
 
     final ad = entry.ad;
     if (ad is AppOpenAd) {
+      final completer = Completer<ShowAdResult>();
       ad.fullScreenContentCallback = FullScreenContentCallback<AppOpenAd>(
-        onAdDismissedFullScreenContent: (_) {
-          unawaited(_reloadPlacementAfterShow(placement));
+        onAdShowedFullScreenContent: (_) {
+          if (!completer.isCompleted) {
+            completer.complete(const ShowAdResult.success());
+          }
         },
-        onAdFailedToShowFullScreenContent: (_, __) {
-          unawaited(_reloadPlacementAfterShow(placement));
+        onAdDismissedFullScreenContent: (_) {
+          unawaited(_consumeShownEntryAfterShow(placement, entry));
+        },
+        onAdFailedToShowFullScreenContent: (_, error) {
+          if (!completer.isCompleted) {
+            completer.complete(
+              ShowAdResult.failure(
+                'code=${error.code} message=${error.message} domain=${error.domain}',
+              ),
+            );
+          }
+          unawaited(_consumeShownEntryAfterShow(placement, entry));
         },
       );
-      await ad.show();
-      return true;
+      try {
+        await ad.show();
+      } catch (error) {
+        return ShowAdResult.failure('exception=$error');
+      }
+      return completer.future;
     }
 
     if (ad is InterstitialAd) {
+      final completer = Completer<ShowAdResult>();
       ad.fullScreenContentCallback = FullScreenContentCallback<InterstitialAd>(
-        onAdDismissedFullScreenContent: (_) {
-          unawaited(_reloadPlacementAfterShow(placement));
+        onAdShowedFullScreenContent: (_) {
+          if (!completer.isCompleted) {
+            completer.complete(const ShowAdResult.success());
+          }
         },
-        onAdFailedToShowFullScreenContent: (_, __) {
-          unawaited(_reloadPlacementAfterShow(placement));
+        onAdDismissedFullScreenContent: (_) {
+          unawaited(_consumeShownEntryAfterShow(placement, entry));
+        },
+        onAdFailedToShowFullScreenContent: (_, error) {
+          if (!completer.isCompleted) {
+            completer.complete(
+              ShowAdResult.failure(
+                'code=${error.code} message=${error.message} domain=${error.domain}',
+              ),
+            );
+          }
+          unawaited(_consumeShownEntryAfterShow(placement, entry));
         },
       );
-      await ad.show();
-      return true;
+      try {
+        await ad.show();
+      } catch (error) {
+        return ShowAdResult.failure('exception=$error');
+      }
+      return completer.future;
     }
 
     if (ad is RewardedAd) {
+      final completer = Completer<ShowAdResult>();
       ad.fullScreenContentCallback = FullScreenContentCallback<RewardedAd>(
+        onAdShowedFullScreenContent: (_) {
+          if (!completer.isCompleted) {
+            completer.complete(const ShowAdResult.success());
+          }
+        },
         onAdDismissedFullScreenContent: (_) {
-          unawaited(_reloadPlacementAfterShow(placement));
+          unawaited(_consumeShownEntryAfterShow(placement, entry));
         },
-        onAdFailedToShowFullScreenContent: (_, __) {
-          unawaited(_reloadPlacementAfterShow(placement));
+        onAdFailedToShowFullScreenContent: (_, error) {
+          if (!completer.isCompleted) {
+            completer.complete(
+              ShowAdResult.failure(
+                'code=${error.code} message=${error.message} domain=${error.domain}',
+              ),
+            );
+          }
+          unawaited(_consumeShownEntryAfterShow(placement, entry));
         },
       );
-      await ad.show(
-        onUserEarnedReward:
-            onUserEarnedReward ??
-            (_, __) {
-              // No-op when caller does not need reward callbacks.
-            },
-      );
-      return true;
+      try {
+        await ad.show(
+          onUserEarnedReward:
+              onUserEarnedReward ??
+              (_, __) {
+                // No-op when caller does not need reward callbacks.
+              },
+        );
+      } catch (error) {
+        return ShowAdResult.failure('exception=$error');
+      }
+      return completer.future;
     }
 
-    return false;
+    return ShowAdResult.failure('unsupported-ad-class=${ad.runtimeType}');
   }
 
   Future<bool> loadAndShow(
@@ -215,16 +273,19 @@ class FlutterPdfAdLoader<K> {
   }
 
   Future<void> clearPlacementCache(K placement) async {
-    final entry = _cacheMap.remove(placement);
-    if (entry != null) {
-      await entry.dispose();
+    final entries = _cacheMap.remove(placement);
+    if (entries != null) {
+      for (final entry in entries) {
+        await entry.dispose();
+      }
     }
   }
 
-  Future<void> _reloadPlacementAfterShow(K placement) async {
-    await clearPlacementCache(placement);
-    _logCacheReload(placement, trigger: 'close');
-    await loadPlacement(placement, force: true);
+  Future<void> consumeShownEntryAfterClose(
+    K placement,
+    LoadedAdCacheEntry entry,
+  ) {
+    return _consumeShownEntryAfterShow(placement, entry);
   }
 
   Future<void> dispose() async {
@@ -234,6 +295,7 @@ class FlutterPdfAdLoader<K> {
     }
     _configs.clear();
     _loadingTasks.clear();
+    _activeRequestCounts.clear();
   }
 
   Future<LoadedAdCacheEntry?> _loadPlacementInternal(
@@ -253,49 +315,141 @@ class FlutterPdfAdLoader<K> {
       return null;
     }
 
-    for (final config in sortedConfigs) {
+    final completer = Completer<LoadedAdCacheEntry?>();
+    final startedIndexes = <int>{};
+    final completedIndexes = <int>{};
+    final timers = <Timer>[];
+
+    bool allDone() =>
+        completedIndexes.length == sortedConfigs.length &&
+        startedIndexes.length == sortedConfigs.length;
+
+    Future<void> tryCompleteNoFill() async {
+      if (completer.isCompleted) {
+        return;
+      }
+      if (!allDone()) {
+        return;
+      }
+      if ((_cacheMap[placement]?.isNotEmpty ?? false)) {
+        return;
+      }
+      await clearPlacementCache(placement);
+      completer.complete(null);
+    }
+
+    Future<void> startLoadAt(int index) async {
+      if (index >= sortedConfigs.length) {
+        return;
+      }
+      if (!startedIndexes.add(index)) {
+        return;
+      }
+
+      final config = sortedConfigs[index];
       _logLoadStart(placement, config);
-      final result = await _loadAdWithTimeout(placement, config);
+      _activeRequestCounts[placement] =
+          (_activeRequestCounts[placement] ?? 0) + 1;
+
+      if (index + 1 < sortedConfigs.length) {
+        final timer = Timer(_requestFallbackDelay, () {
+          if (completedIndexes.contains(index)) {
+            return;
+          }
+          unawaited(startLoadAt(index + 1));
+        });
+        timers.add(timer);
+      }
+
+      final result = await _loadAd(config);
+      completedIndexes.add(index);
+      final nextActiveCount = (_activeRequestCounts[placement] ?? 1) - 1;
+      if (nextActiveCount <= 0) {
+        _activeRequestCounts.remove(placement);
+      } else {
+        _activeRequestCounts[placement] = nextActiveCount;
+      }
+
       final ad = result.ad;
       if (ad == null) {
         _logLoadFailure(placement, config, reason: result.failureReason);
-        continue;
+        if (index + 1 < sortedConfigs.length) {
+          unawaited(startLoadAt(index + 1));
+        }
+        await tryCompleteNoFill();
+        return;
       }
 
       final entry = LoadedAdCacheEntry(
         info: config,
         ad: ad,
         cachedAt: DateTime.now(),
+        requestOrder: index,
       );
-      await _replaceCache(placement, entry);
-      _logLoadSuccess(placement, entry);
-      return entry;
+      await _insertCacheEntry(placement, entry);
+      _logLoadSuccess(
+        placement,
+        entry,
+        cacheCount: _cacheMap[placement]?.length ?? 0,
+      );
+      if (!completer.isCompleted) {
+        completer.complete(entry);
+      }
+      await tryCompleteNoFill();
     }
 
-    await clearPlacementCache(placement);
-    return null;
+    unawaited(startLoadAt(0));
+    final firstResult = await completer.future;
+    for (final timer in timers) {
+      timer.cancel();
+    }
+    return firstResult;
   }
 
-  Future<void> _replaceCache(K placement, LoadedAdCacheEntry nextEntry) async {
-    final previousEntry = _cacheMap[placement];
-    if (previousEntry != null) {
-      await previousEntry.dispose();
+  Future<void> _insertCacheEntry(
+    K placement,
+    LoadedAdCacheEntry nextEntry,
+  ) async {
+    final entries = _cacheMap.putIfAbsent(
+      placement,
+      () => <LoadedAdCacheEntry>[],
+    );
+    var insertAt = entries.length;
+    for (var index = 0; index < entries.length; index++) {
+      if (nextEntry.requestOrder < entries[index].requestOrder) {
+        insertAt = index;
+        break;
+      }
     }
-    _cacheMap[placement] = nextEntry;
+    entries.insert(insertAt, nextEntry);
   }
 
   Future<bool> _evictExpiredCacheIfNeeded(
     K placement, {
     required bool reloadOnExpire,
   }) async {
-    final entry = _cacheMap[placement];
-    if (entry == null || !entry.isExpired) {
+    final entries = _cacheMap[placement];
+    if (entries == null || entries.isEmpty) {
       return false;
     }
 
-    await clearPlacementCache(placement);
-    if (reloadOnExpire) {
-      unawaited(loadPlacement(placement, force: true));
+    final expiredEntries = entries
+        .where((entry) => entry.isExpired)
+        .toList(growable: false);
+    if (expiredEntries.isEmpty) {
+      return false;
+    }
+
+    for (final expiredEntry in expiredEntries) {
+      entries.remove(expiredEntry);
+      await expiredEntry.dispose();
+    }
+
+    if (entries.isEmpty) {
+      _cacheMap.remove(placement);
+      if (reloadOnExpire) {
+        unawaited(loadPlacement(placement, force: true));
+      }
     }
     return true;
   }
@@ -321,31 +475,14 @@ class FlutterPdfAdLoader<K> {
     }
   }
 
-  Future<_AdLoadResult> _loadAdWithTimeout(K placement, AdInfoBean info) async {
-    try {
-      return await _loadAd(info);
-    } catch (error) {
-      final reason = 'exception=$error';
-      _logLoadException(placement, info, reason: reason);
-      return _AdLoadResult.failure(reason);
-    }
-  }
-
   Future<_AdLoadResult> _loadAppOpenAd(String adId) async {
     final completer = Completer<_AdLoadResult>();
-    var isTimedOut = false;
-    Timer? timeoutTimer;
 
     void completeFailure(String reason) {
       if (!completer.isCompleted) {
         completer.complete(_AdLoadResult.failure(reason));
       }
     }
-
-    timeoutTimer = Timer(_requestFallbackDelay, () {
-      isTimedOut = true;
-      completeFailure('timeout=${_requestFallbackDelay.inMilliseconds}ms');
-    });
 
     try {
       await AppOpenAd.load(
@@ -353,17 +490,13 @@ class FlutterPdfAdLoader<K> {
         request: _defaultAdRequest,
         adLoadCallback: AppOpenAdLoadCallback(
           onAdLoaded: (ad) {
-            timeoutTimer?.cancel();
-            if (isTimedOut || completer.isCompleted) {
+            if (completer.isCompleted) {
               ad.dispose();
               return;
             }
-            if (!completer.isCompleted) {
-              completer.complete(_AdLoadResult.success(ad));
-            }
+            completer.complete(_AdLoadResult.success(ad));
           },
           onAdFailedToLoad: (error) {
-            timeoutTimer?.cancel();
             completeFailure(
               'code=${error.code} message=${error.message} domain=${error.domain}',
             );
@@ -371,7 +504,6 @@ class FlutterPdfAdLoader<K> {
         ),
       );
     } catch (error) {
-      timeoutTimer.cancel();
       completeFailure('exception=$error');
     }
     return completer.future;
@@ -379,19 +511,12 @@ class FlutterPdfAdLoader<K> {
 
   Future<_AdLoadResult> _loadInterstitialAd(String adId) async {
     final completer = Completer<_AdLoadResult>();
-    var isTimedOut = false;
-    Timer? timeoutTimer;
 
     void completeFailure(String reason) {
       if (!completer.isCompleted) {
         completer.complete(_AdLoadResult.failure(reason));
       }
     }
-
-    timeoutTimer = Timer(_requestFallbackDelay, () {
-      isTimedOut = true;
-      completeFailure('timeout=${_requestFallbackDelay.inMilliseconds}ms');
-    });
 
     try {
       await InterstitialAd.load(
@@ -399,17 +524,13 @@ class FlutterPdfAdLoader<K> {
         request: _defaultAdRequest,
         adLoadCallback: InterstitialAdLoadCallback(
           onAdLoaded: (ad) {
-            timeoutTimer?.cancel();
-            if (isTimedOut || completer.isCompleted) {
+            if (completer.isCompleted) {
               ad.dispose();
               return;
             }
-            if (!completer.isCompleted) {
-              completer.complete(_AdLoadResult.success(ad));
-            }
+            completer.complete(_AdLoadResult.success(ad));
           },
           onAdFailedToLoad: (error) {
-            timeoutTimer?.cancel();
             completeFailure(
               'code=${error.code} message=${error.message} domain=${error.domain}',
             );
@@ -417,7 +538,6 @@ class FlutterPdfAdLoader<K> {
         ),
       );
     } catch (error) {
-      timeoutTimer.cancel();
       completeFailure('exception=$error');
     }
     return completer.future;
@@ -425,8 +545,6 @@ class FlutterPdfAdLoader<K> {
 
   Future<_AdLoadResult> _loadRewardedAd(String adId) async {
     final completer = Completer<_AdLoadResult>();
-    var isTimedOut = false;
-    Timer? timeoutTimer;
 
     void completeFailure(String reason) {
       if (!completer.isCompleted) {
@@ -434,28 +552,19 @@ class FlutterPdfAdLoader<K> {
       }
     }
 
-    timeoutTimer = Timer(_requestFallbackDelay, () {
-      isTimedOut = true;
-      completeFailure('timeout=${_requestFallbackDelay.inMilliseconds}ms');
-    });
-
     try {
       await RewardedAd.load(
         adUnitId: adId,
         request: _defaultAdRequest,
         rewardedAdLoadCallback: RewardedAdLoadCallback(
           onAdLoaded: (ad) {
-            timeoutTimer?.cancel();
-            if (isTimedOut || completer.isCompleted) {
+            if (completer.isCompleted) {
               ad.dispose();
               return;
             }
-            if (!completer.isCompleted) {
-              completer.complete(_AdLoadResult.success(ad));
-            }
+            completer.complete(_AdLoadResult.success(ad));
           },
           onAdFailedToLoad: (error) {
-            timeoutTimer?.cancel();
             completeFailure(
               'code=${error.code} message=${error.message} domain=${error.domain}',
             );
@@ -463,7 +572,6 @@ class FlutterPdfAdLoader<K> {
         ),
       );
     } catch (error) {
-      timeoutTimer.cancel();
       completeFailure('exception=$error');
     }
     return completer.future;
@@ -471,8 +579,6 @@ class FlutterPdfAdLoader<K> {
 
   Future<_AdLoadResult> _loadBannerAd(String adId) async {
     final completer = Completer<_AdLoadResult>();
-    var isTimedOut = false;
-    Timer? timeoutTimer;
 
     void completeFailure(String reason) {
       if (!completer.isCompleted) {
@@ -485,17 +591,13 @@ class FlutterPdfAdLoader<K> {
       adUnitId: adId,
       listener: BannerAdListener(
         onAdLoaded: (ad) {
-          timeoutTimer?.cancel();
-          if (isTimedOut || completer.isCompleted) {
+          if (completer.isCompleted) {
             ad.dispose();
             return;
           }
-          if (!completer.isCompleted) {
-            completer.complete(_AdLoadResult.success(ad));
-          }
+          completer.complete(_AdLoadResult.success(ad));
         },
         onAdFailedToLoad: (ad, error) async {
-          timeoutTimer?.cancel();
           await ad.dispose();
           completeFailure(
             'code=${error.code} message=${error.message} domain=${error.domain}',
@@ -505,16 +607,9 @@ class FlutterPdfAdLoader<K> {
       request: _defaultAdRequest,
     );
 
-    timeoutTimer = Timer(_requestFallbackDelay, () async {
-      isTimedOut = true;
-      await ad.dispose();
-      completeFailure('timeout=${_requestFallbackDelay.inMilliseconds}ms');
-    });
-
     try {
       await ad.load();
     } catch (error) {
-      timeoutTimer.cancel();
       await ad.dispose();
       completeFailure('exception=$error');
     }
@@ -524,8 +619,6 @@ class FlutterPdfAdLoader<K> {
 
   Future<_AdLoadResult> _loadNativeAd(String adId) async {
     final completer = Completer<_AdLoadResult>();
-    var isTimedOut = false;
-    Timer? timeoutTimer;
 
     void completeFailure(String reason) {
       if (!completer.isCompleted) {
@@ -537,17 +630,13 @@ class FlutterPdfAdLoader<K> {
       adUnitId: adId,
       listener: NativeAdListener(
         onAdLoaded: (ad) {
-          timeoutTimer?.cancel();
-          if (isTimedOut || completer.isCompleted) {
+          if (completer.isCompleted) {
             ad.dispose();
             return;
           }
-          if (!completer.isCompleted) {
-            completer.complete(_AdLoadResult.success(ad));
-          }
+          completer.complete(_AdLoadResult.success(ad));
         },
         onAdFailedToLoad: (ad, error) async {
-          timeoutTimer?.cancel();
           await ad.dispose();
           completeFailure(
             'code=${error.code} message=${error.message} domain=${error.domain}',
@@ -558,16 +647,9 @@ class FlutterPdfAdLoader<K> {
       nativeTemplateStyle: _nativeTemplateStyle,
     );
 
-    timeoutTimer = Timer(_requestFallbackDelay, () async {
-      isTimedOut = true;
-      await ad.dispose();
-      completeFailure('timeout=${_requestFallbackDelay.inMilliseconds}ms');
-    });
-
     try {
       await ad.load();
     } catch (error) {
-      timeoutTimer.cancel();
       await ad.dispose();
       completeFailure('exception=$error');
     }
@@ -583,16 +665,18 @@ class FlutterPdfAdLoader<K> {
     _log('load-failed', placement, info: info, extra: reason);
   }
 
-  void _logLoadException(K placement, AdInfoBean info, {String? reason}) {
-    _log('load-exception', placement, info: info, extra: reason);
-  }
-
-  void _logLoadSuccess(K placement, LoadedAdCacheEntry entry) {
+  void _logLoadSuccess(
+    K placement,
+    LoadedAdCacheEntry entry, {
+    required int cacheCount,
+  }) {
     _log(
       'load-success',
       placement,
       info: entry.info,
       extra:
+          'requestOrder=${entry.requestOrder} '
+          'cacheCount=$cacheCount '
           'loadedAt=${entry.cachedAt.toIso8601String()} '
           'expireAt=${entry.expireAt?.toIso8601String() ?? 'never'} '
           'adClass=${entry.ad.runtimeType}',
@@ -618,6 +702,49 @@ class FlutterPdfAdLoader<K> {
     debugPrint(
       '[FlutterPdfAdLoader] reload-after-show placement=${_placementLabel(placement)} '
       'trigger=$trigger',
+    );
+  }
+
+  Future<void> _consumeShownEntryAfterShow(
+    K placement,
+    LoadedAdCacheEntry shownEntry,
+  ) async {
+    final entries = _cacheMap[placement];
+    if (entries == null || entries.isEmpty) {
+      return;
+    }
+
+    final removed = entries.remove(shownEntry);
+    if (!removed) {
+      return;
+    }
+
+    await shownEntry.dispose();
+
+    if (entries.isEmpty) {
+      _cacheMap.remove(placement);
+      final activeRequestCount = _activeRequestCounts[placement] ?? 0;
+      if (activeRequestCount > 0) {
+        _log(
+          'cache-empty-await-pending',
+          placement,
+          info: shownEntry.info,
+          extra: 'activeRequestCount=$activeRequestCount',
+        );
+        return;
+      }
+      _logCacheReload(placement, trigger: 'close-empty-reload');
+      await loadPlacement(placement, force: true);
+      return;
+    }
+
+    _log(
+      'cache-advance-after-show',
+      placement,
+      info: entries.first.info,
+      extra:
+          'remainingCount=${entries.length} '
+          'nextRequestOrder=${entries.first.requestOrder}',
     );
   }
 
@@ -662,5 +789,17 @@ class _AdLoadResult {
   const _AdLoadResult.failure(String reason) : this._(failureReason: reason);
 
   final Ad? ad;
+  final String? failureReason;
+}
+
+class ShowAdResult {
+  const ShowAdResult._({required this.shown, this.failureReason});
+
+  const ShowAdResult.success() : this._(shown: true);
+
+  const ShowAdResult.failure(String reason)
+    : this._(shown: false, failureReason: reason);
+
+  final bool shown;
   final String? failureReason;
 }

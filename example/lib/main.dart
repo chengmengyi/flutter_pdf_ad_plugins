@@ -110,9 +110,9 @@ class _MyAppState extends State<MyApp> {
     });
   }
 
-  Future<void> _initAdmob() async {
+  Future<void> _initAdmob(BuildContext context) async {
     await FlutterPdfAdPlugins.instance.initAdmob();
-    if (!mounted) {
+    if (!mounted || !context.mounted) {
       return;
     }
     ScaffoldMessenger.of(
@@ -123,78 +123,78 @@ class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(title: const Text('Plugin example app')),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(_configStatus),
-                const SizedBox(height: 8),
-                Text(_startupStatus),
-                const SizedBox(height: 8),
-                Text(_umpStatus),
-                const SizedBox(height: 8),
-                Text(_preloadStatus),
-                const SizedBox(height: 8),
-                Text('当前配置文件: ${_configPath ?? "-"}'),
-                const SizedBox(height: 8),
-                Text('广告位数量: $_placementCount'),
-                const SizedBox(height: 8),
-                Text('广告单元数量: $_adUnitCount'),
-                const SizedBox(height: 16),
-                TextButton(
-                  onPressed: _runStartupFlow,
-                  child: const Text('执行启动流程'),
-                ),
-                TextButton(
-                  onPressed: _initAdmob,
-                  child: const Text('初始化admob'),
-                ),
-                TextButton(
-                  onPressed: () {
-                    FlutterPdfAdPlugins.instance.preloadAll<AdPlacement>(
-                      placements: const [
+      home: Builder(
+        builder: (appContext) => Scaffold(
+          appBar: AppBar(title: const Text('Plugin example app')),
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(_configStatus),
+                  const SizedBox(height: 8),
+                  Text(_startupStatus),
+                  const SizedBox(height: 8),
+                  Text(_umpStatus),
+                  const SizedBox(height: 8),
+                  Text(_preloadStatus),
+                  const SizedBox(height: 8),
+                  Text('当前配置文件: ${_configPath ?? "-"}'),
+                  const SizedBox(height: 8),
+                  Text('广告位数量: $_placementCount'),
+                  const SizedBox(height: 8),
+                  Text('广告单元数量: $_adUnitCount'),
+                  const SizedBox(height: 16),
+                  TextButton(
+                    onPressed: _runStartupFlow,
+                    child: const Text('执行启动流程'),
+                  ),
+                  TextButton(
+                    onPressed: () => _initAdmob(appContext),
+                    child: const Text('初始化admob'),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      FlutterPdfAdPlugins.instance.preloadAll<AdPlacement>(
+                        placements: const [
+                          AdPlacement.prLaunch,
+                          AdPlacement.prNewGuideNat1,
+                        ],
+                      );
+                    },
+                    child: const Text('加载pr_launch和pr_new_guide_nat1'),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      FlutterPdfAdPlugins.instance.showCachedAd(
                         AdPlacement.prLaunch,
-                        AdPlacement.prNewGuideNat1,
-                      ],
-                    );
-                  },
-                  child: const Text('加载pr_launch和pr_new_guide_nat1'),
-                ),
-                TextButton(
-                  onPressed: () {
-                    FlutterPdfAdPlugins.instance.showCachedAd(
-                      AdPlacement.prLaunch,
-                      context: context,
-                    );
-                  },
-                  child: const Text('显示pr_launch'),
-                ),
-                TextButton(
-                  onPressed: () {
-                    FlutterPdfAdPlugins.instance.preloadAll<AdPlacement>(
-                      placements: const [
+                        context: appContext,
+                      );
+                    },
+                    child: const Text('显示pr_launch'),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      FlutterPdfAdPlugins.instance.preloadAll<AdPlacement>(
+                        placements: const [AdPlacement.prMainTools],
+                      );
+                    },
+                    child: const Text('加载prMainTools'),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      FlutterPdfAdPlugins.instance.showCachedAd(
                         AdPlacement.prMainTools,
-                      ],
-                    );
-                  },
-                  child: const Text('加载prMainTools'),
-                ),
-                TextButton(
-                  onPressed: () {
-                    FlutterPdfAdPlugins.instance.showCachedAd(
-                      AdPlacement.prMainTools,
-                      context: context,
-                      enableNativeCooldown: true,
-                    );
-                  },
-                  child: const Text('显示prMainTools'),
-                ),
-              ],
+                        context: appContext,
+                        enableNativeCooldown: true,
+                      );
+                    },
+                    child: const Text('显示prMainTools'),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

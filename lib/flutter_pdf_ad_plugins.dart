@@ -712,7 +712,7 @@ class FlutterPdfAdPlugins {
         placement,
         cachedEntry,
       );
-      if (shown) {
+      if (shown.shown) {
         _recordShownAd(
           cachedEntry.info,
           enableNativeCooldown: enableNativeCooldown,
@@ -728,17 +728,19 @@ class FlutterPdfAdPlugins {
           'show-failed',
           placement,
           cachedEntry.info,
-          extra: 'adType=native',
+          extra:
+              'adType=native '
+              'reason=${shown.failureReason ?? 'unknown'}',
         );
       }
-      return shown;
+      return shown.shown;
     }
 
-    final shown = await loader.showCachedAd(
+    final shown = await loader.showCachedAdWithResult(
       placement,
       onUserEarnedReward: onUserEarnedReward,
     );
-    if (shown) {
+    if (shown.shown) {
       _recordShownAd(cachedEntry.info, enableNativeCooldown: true);
       _log(
         'show-success',
@@ -751,10 +753,12 @@ class FlutterPdfAdPlugins {
         'show-failed',
         placement,
         cachedEntry.info,
-        extra: 'adType=${cachedEntry.info.adType}',
+        extra:
+            'adType=${cachedEntry.info.adType} '
+            'reason=${shown.failureReason ?? 'unknown'}',
       );
     }
-    return shown;
+    return shown.shown;
   }
 
   Future<bool> _isBlockedByShield(Object placement, AdInfoBean info) async {
@@ -869,7 +873,7 @@ class FlutterPdfAdPlugins {
     );
   }
 
-  Future<bool> _showNativeAd(
+  Future<_ShowResult> _showNativeAd(
     BuildContext context,
     FlutterPdfAdLoader<Object> loader,
     Object placement,
@@ -878,7 +882,7 @@ class FlutterPdfAdPlugins {
     final ad = entry.ad;
     if (ad is! NativeAd) {
       _log('show-native-invalid-ad', placement, entry.info);
-      return false;
+      return const _ShowResult.failure('invalid-native-ad');
     }
 
     final interstitialLike = _interstitialLikeNativePlacements.contains(
@@ -889,7 +893,7 @@ class FlutterPdfAdPlugins {
         Navigator.maybeOf(context);
     if (navigator == null) {
       _log('show-native-missing-navigator', placement, entry.info);
-      return false;
+      return const _ShowResult.failure('missing-navigator');
     }
 
     if (interstitialLike) {
@@ -907,10 +911,9 @@ class FlutterPdfAdPlugins {
       );
     }
 
-    await loader.clearPlacementCache(placement);
-    _log('native-closed-reload', placement, entry.info);
-    unawaited(loader.loadPlacement(placement, force: true));
-    return true;
+    await loader.consumeShownEntryAfterClose(placement, entry);
+    _log('native-closed-consume', placement, entry.info);
+    return const _ShowResult.success();
   }
 
   void _log(String stage, Object placement, AdInfoBean info, {String? extra}) {
@@ -1031,6 +1034,18 @@ class _CooldownBlockReason {
 
   final String cooldownType;
   final int remainingSeconds;
+}
+
+class _ShowResult {
+  const _ShowResult._({required this.shown, this.failureReason});
+
+  const _ShowResult.success() : this._(shown: true);
+
+  const _ShowResult.failure(String reason)
+    : this._(shown: false, failureReason: reason);
+
+  final bool shown;
+  final String? failureReason;
 }
 
 class _NativeInterstitialPage extends StatelessWidget {
