@@ -255,9 +255,10 @@ class FlutterPdfAdLoader<K> {
 
     for (final config in sortedConfigs) {
       _logLoadStart(placement, config);
-      final ad = await _loadAdWithTimeout(placement, config);
+      final result = await _loadAdWithTimeout(placement, config);
+      final ad = result.ad;
       if (ad == null) {
-        _logLoadFailure(placement, config);
+        _logLoadFailure(placement, config, reason: result.failureReason);
         continue;
       }
 
@@ -299,11 +300,11 @@ class FlutterPdfAdLoader<K> {
     return true;
   }
 
-  Future<Ad?> _loadAd(AdInfoBean info) async {
+  Future<_AdLoadResult> _loadAd(AdInfoBean info) async {
     final adType = info.parsedAdType;
     final adId = info.adId;
     if (adType == null || adId == null || adId.isEmpty) {
-      return null;
+      return const _AdLoadResult.failure('invalid-ad-config');
     }
 
     switch (adType) {
@@ -320,29 +321,30 @@ class FlutterPdfAdLoader<K> {
     }
   }
 
-  Future<Ad?> _loadAdWithTimeout(K placement, AdInfoBean info) async {
+  Future<_AdLoadResult> _loadAdWithTimeout(K placement, AdInfoBean info) async {
     try {
       return await _loadAd(info);
-    } catch (_) {
-      _logLoadTimeout(placement, info);
-      return null;
+    } catch (error) {
+      final reason = 'exception=$error';
+      _logLoadException(placement, info, reason: reason);
+      return _AdLoadResult.failure(reason);
     }
   }
 
-  Future<Ad?> _loadAppOpenAd(String adId) async {
-    final completer = Completer<Ad?>();
+  Future<_AdLoadResult> _loadAppOpenAd(String adId) async {
+    final completer = Completer<_AdLoadResult>();
     var isTimedOut = false;
     Timer? timeoutTimer;
 
-    void completeNull() {
+    void completeFailure(String reason) {
       if (!completer.isCompleted) {
-        completer.complete(null);
+        completer.complete(_AdLoadResult.failure(reason));
       }
     }
 
     timeoutTimer = Timer(_requestFallbackDelay, () {
       isTimedOut = true;
-      completeNull();
+      completeFailure('timeout=${_requestFallbackDelay.inMilliseconds}ms');
     });
 
     try {
@@ -357,36 +359,38 @@ class FlutterPdfAdLoader<K> {
               return;
             }
             if (!completer.isCompleted) {
-              completer.complete(ad);
+              completer.complete(_AdLoadResult.success(ad));
             }
           },
-          onAdFailedToLoad: (_) {
+          onAdFailedToLoad: (error) {
             timeoutTimer?.cancel();
-            completeNull();
+            completeFailure(
+              'code=${error.code} message=${error.message} domain=${error.domain}',
+            );
           },
         ),
       );
-    } catch (_) {
+    } catch (error) {
       timeoutTimer.cancel();
-      completeNull();
+      completeFailure('exception=$error');
     }
     return completer.future;
   }
 
-  Future<Ad?> _loadInterstitialAd(String adId) async {
-    final completer = Completer<Ad?>();
+  Future<_AdLoadResult> _loadInterstitialAd(String adId) async {
+    final completer = Completer<_AdLoadResult>();
     var isTimedOut = false;
     Timer? timeoutTimer;
 
-    void completeNull() {
+    void completeFailure(String reason) {
       if (!completer.isCompleted) {
-        completer.complete(null);
+        completer.complete(_AdLoadResult.failure(reason));
       }
     }
 
     timeoutTimer = Timer(_requestFallbackDelay, () {
       isTimedOut = true;
-      completeNull();
+      completeFailure('timeout=${_requestFallbackDelay.inMilliseconds}ms');
     });
 
     try {
@@ -401,36 +405,38 @@ class FlutterPdfAdLoader<K> {
               return;
             }
             if (!completer.isCompleted) {
-              completer.complete(ad);
+              completer.complete(_AdLoadResult.success(ad));
             }
           },
-          onAdFailedToLoad: (_) {
+          onAdFailedToLoad: (error) {
             timeoutTimer?.cancel();
-            completeNull();
+            completeFailure(
+              'code=${error.code} message=${error.message} domain=${error.domain}',
+            );
           },
         ),
       );
-    } catch (_) {
+    } catch (error) {
       timeoutTimer.cancel();
-      completeNull();
+      completeFailure('exception=$error');
     }
     return completer.future;
   }
 
-  Future<Ad?> _loadRewardedAd(String adId) async {
-    final completer = Completer<Ad?>();
+  Future<_AdLoadResult> _loadRewardedAd(String adId) async {
+    final completer = Completer<_AdLoadResult>();
     var isTimedOut = false;
     Timer? timeoutTimer;
 
-    void completeNull() {
+    void completeFailure(String reason) {
       if (!completer.isCompleted) {
-        completer.complete(null);
+        completer.complete(_AdLoadResult.failure(reason));
       }
     }
 
     timeoutTimer = Timer(_requestFallbackDelay, () {
       isTimedOut = true;
-      completeNull();
+      completeFailure('timeout=${_requestFallbackDelay.inMilliseconds}ms');
     });
 
     try {
@@ -445,30 +451,32 @@ class FlutterPdfAdLoader<K> {
               return;
             }
             if (!completer.isCompleted) {
-              completer.complete(ad);
+              completer.complete(_AdLoadResult.success(ad));
             }
           },
-          onAdFailedToLoad: (_) {
+          onAdFailedToLoad: (error) {
             timeoutTimer?.cancel();
-            completeNull();
+            completeFailure(
+              'code=${error.code} message=${error.message} domain=${error.domain}',
+            );
           },
         ),
       );
-    } catch (_) {
+    } catch (error) {
       timeoutTimer.cancel();
-      completeNull();
+      completeFailure('exception=$error');
     }
     return completer.future;
   }
 
-  Future<Ad?> _loadBannerAd(String adId) async {
-    final completer = Completer<Ad?>();
+  Future<_AdLoadResult> _loadBannerAd(String adId) async {
+    final completer = Completer<_AdLoadResult>();
     var isTimedOut = false;
     Timer? timeoutTimer;
 
-    void completeNull() {
+    void completeFailure(String reason) {
       if (!completer.isCompleted) {
-        completer.complete(null);
+        completer.complete(_AdLoadResult.failure(reason));
       }
     }
 
@@ -483,13 +491,15 @@ class FlutterPdfAdLoader<K> {
             return;
           }
           if (!completer.isCompleted) {
-            completer.complete(ad);
+            completer.complete(_AdLoadResult.success(ad));
           }
         },
-        onAdFailedToLoad: (ad, _) async {
+        onAdFailedToLoad: (ad, error) async {
           timeoutTimer?.cancel();
           await ad.dispose();
-          completeNull();
+          completeFailure(
+            'code=${error.code} message=${error.message} domain=${error.domain}',
+          );
         },
       ),
       request: _defaultAdRequest,
@@ -498,28 +508,28 @@ class FlutterPdfAdLoader<K> {
     timeoutTimer = Timer(_requestFallbackDelay, () async {
       isTimedOut = true;
       await ad.dispose();
-      completeNull();
+      completeFailure('timeout=${_requestFallbackDelay.inMilliseconds}ms');
     });
 
     try {
       await ad.load();
-    } catch (_) {
+    } catch (error) {
       timeoutTimer.cancel();
       await ad.dispose();
-      completeNull();
+      completeFailure('exception=$error');
     }
 
     return completer.future;
   }
 
-  Future<Ad?> _loadNativeAd(String adId) async {
-    final completer = Completer<Ad?>();
+  Future<_AdLoadResult> _loadNativeAd(String adId) async {
+    final completer = Completer<_AdLoadResult>();
     var isTimedOut = false;
     Timer? timeoutTimer;
 
-    void completeNull() {
+    void completeFailure(String reason) {
       if (!completer.isCompleted) {
-        completer.complete(null);
+        completer.complete(_AdLoadResult.failure(reason));
       }
     }
 
@@ -533,13 +543,15 @@ class FlutterPdfAdLoader<K> {
             return;
           }
           if (!completer.isCompleted) {
-            completer.complete(ad);
+            completer.complete(_AdLoadResult.success(ad));
           }
         },
-        onAdFailedToLoad: (ad, _) async {
+        onAdFailedToLoad: (ad, error) async {
           timeoutTimer?.cancel();
           await ad.dispose();
-          completeNull();
+          completeFailure(
+            'code=${error.code} message=${error.message} domain=${error.domain}',
+          );
         },
       ),
       request: _defaultAdRequest,
@@ -549,15 +561,15 @@ class FlutterPdfAdLoader<K> {
     timeoutTimer = Timer(_requestFallbackDelay, () async {
       isTimedOut = true;
       await ad.dispose();
-      completeNull();
+      completeFailure('timeout=${_requestFallbackDelay.inMilliseconds}ms');
     });
 
     try {
       await ad.load();
-    } catch (_) {
+    } catch (error) {
       timeoutTimer.cancel();
       await ad.dispose();
-      completeNull();
+      completeFailure('exception=$error');
     }
 
     return completer.future;
@@ -567,17 +579,12 @@ class FlutterPdfAdLoader<K> {
     _log('load-start', placement, info: info);
   }
 
-  void _logLoadFailure(K placement, AdInfoBean info) {
-    _log('load-failed', placement, info: info);
+  void _logLoadFailure(K placement, AdInfoBean info, {String? reason}) {
+    _log('load-failed', placement, info: info, extra: reason);
   }
 
-  void _logLoadTimeout(K placement, AdInfoBean info) {
-    _log(
-      'load-timeout',
-      placement,
-      info: info,
-      extra: 'timeoutMs=${_requestFallbackDelay.inMilliseconds}',
-    );
+  void _logLoadException(K placement, AdInfoBean info, {String? reason}) {
+    _log('load-exception', placement, info: info, extra: reason);
   }
 
   void _logLoadSuccess(K placement, LoadedAdCacheEntry entry) {
@@ -645,4 +652,15 @@ class FlutterPdfAdLoader<K> {
   String _placementLabel(K placement) {
     return _placementLabelBuilder?.call(placement) ?? placement.toString();
   }
+}
+
+class _AdLoadResult {
+  const _AdLoadResult._({this.ad, this.failureReason});
+
+  const _AdLoadResult.success(Ad ad) : this._(ad: ad);
+
+  const _AdLoadResult.failure(String reason) : this._(failureReason: reason);
+
+  final Ad? ad;
+  final String? failureReason;
 }

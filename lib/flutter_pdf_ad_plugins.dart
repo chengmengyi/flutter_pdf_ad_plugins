@@ -388,6 +388,9 @@ class FlutterPdfAdPlugins {
   }) async {
     await _syncLoaderConfigs(loader);
     if (context != null && !context.mounted) {
+      _logGeneral(
+        'show-failed placement=$placement reason=context-unmounted-before-show',
+      );
       return false;
     }
     return _showPlacement(
@@ -594,6 +597,9 @@ class FlutterPdfAdPlugins {
         onUserEarnedReward: onUserEarnedReward,
       );
       if (shown) {
+        _logGeneral(
+          'load-and-show-return placement=$placement result=shown-from-cache',
+        );
         return true;
       }
     }
@@ -605,20 +611,28 @@ class FlutterPdfAdPlugins {
       force: forceReload,
     );
     if (entry == null) {
+      _logGeneral(
+        'load-and-show-return placement=$placement result=load-failed',
+      );
       return false;
     }
 
     if (context != null && !context.mounted) {
+      _logGeneral(
+        'load-and-show-return placement=$placement result=context-unmounted-after-load',
+      );
       return false;
     }
 
-    return _showPlacement(
+    final shown = await _showPlacement(
       loader,
       placement,
       context: context,
       enableNativeCooldown: enableNativeCooldown,
       onUserEarnedReward: onUserEarnedReward,
     );
+    _logGeneral('load-and-show-return placement=$placement result=$shown');
+    return shown;
   }
 
   Future<bool> _showPlacement(
@@ -628,15 +642,25 @@ class FlutterPdfAdPlugins {
     required bool enableNativeCooldown,
     required OnUserEarnedRewardCallback? onUserEarnedReward,
   }) async {
-    final cachedEntry = loader.cacheMap[placement];
+    _logGeneral('show-start placement=$placement');
+
+    var cachedEntry = loader.cacheMap[placement];
     if (cachedEntry == null) {
-      return false;
+      _logGeneral('show-cache-miss placement=$placement');
+      cachedEntry = await loader.loadPlacement(placement);
+      if (cachedEntry == null) {
+        _logGeneral(
+          'show-failed placement=$placement reason=load-on-show-failed',
+        );
+        return false;
+      }
     }
 
     if (cachedEntry.isExpired) {
       await loader.clearPlacementCache(placement);
       unawaited(loader.loadPlacement(placement, force: true));
       _log('show-expired', placement, cachedEntry.info);
+      _logGeneral('show-failed placement=$placement reason=cache-expired');
       return false;
     }
 
@@ -645,6 +669,7 @@ class FlutterPdfAdPlugins {
       cachedEntry.info,
     );
     if (blockedByShield) {
+      _logGeneral('show-failed placement=$placement reason=shield-blocked');
       return false;
     }
 
@@ -661,6 +686,7 @@ class FlutterPdfAdPlugins {
             'cooldownType=${cooldownResult.cooldownType} '
             'remainingSeconds=${cooldownResult.remainingSeconds}',
       );
+      _logGeneral('show-failed placement=$placement reason=cooldown-blocked');
       return false;
     }
 
@@ -668,9 +694,15 @@ class FlutterPdfAdPlugins {
     if (adType == AdType.native) {
       if (context == null) {
         _log('show-native-missing-context', placement, cachedEntry.info);
+        _logGeneral(
+          'show-failed placement=$placement reason=native-missing-context',
+        );
         return false;
       }
       if (!context.mounted) {
+        _logGeneral(
+          'show-failed placement=$placement reason=context-unmounted',
+        );
         return false;
       }
 
@@ -685,6 +717,19 @@ class FlutterPdfAdPlugins {
           cachedEntry.info,
           enableNativeCooldown: enableNativeCooldown,
         );
+        _log(
+          'show-success',
+          placement,
+          cachedEntry.info,
+          extra: 'adType=native',
+        );
+      } else {
+        _log(
+          'show-failed',
+          placement,
+          cachedEntry.info,
+          extra: 'adType=native',
+        );
       }
       return shown;
     }
@@ -695,6 +740,19 @@ class FlutterPdfAdPlugins {
     );
     if (shown) {
       _recordShownAd(cachedEntry.info, enableNativeCooldown: true);
+      _log(
+        'show-success',
+        placement,
+        cachedEntry.info,
+        extra: 'adType=${cachedEntry.info.adType}',
+      );
+    } else {
+      _log(
+        'show-failed',
+        placement,
+        cachedEntry.info,
+        extra: 'adType=${cachedEntry.info.adType}',
+      );
     }
     return shown;
   }
@@ -819,6 +877,7 @@ class FlutterPdfAdPlugins {
   ) async {
     final ad = entry.ad;
     if (ad is! NativeAd) {
+      _log('show-native-invalid-ad', placement, entry.info);
       return false;
     }
 
