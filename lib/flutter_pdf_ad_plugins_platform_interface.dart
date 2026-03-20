@@ -27,4 +27,8 @@ abstract class FlutterPdfAdPluginsPlatform extends PlatformInterface {
   Future<String?> getPlatformVersion() {
     throw UnimplementedError('platformVersion() has not been implemented.');
   }
+
+  Future<String?> getAndroidId() {
+    throw UnimplementedError('getAndroidId() has not been implemented.');
+  }
 }

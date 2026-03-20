@@ -12,6 +12,8 @@ public class FlutterPdfAdPluginsPlugin: NSObject, FlutterPlugin {
     switch call.method {
     case "getPlatformVersion":
       result("iOS " + UIDevice.current.systemVersion)
+    case "getAndroidId":
+      result(nil)
     default:
       result(FlutterMethodNotImplemented)
     }

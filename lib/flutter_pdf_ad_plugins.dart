@@ -8,6 +8,7 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'bean/ad_info_bean.dart';
 import 'enum/ad_type.dart';
+import 'group/ad_user_group_manager.dart';
 import 'load/flutter_pdf_ad_loader.dart';
 import 'load/loaded_ad_cache_entry.dart';
 import 'shield/ad_adjust_manager.dart';
@@ -79,6 +80,7 @@ class FlutterPdfAdPlugins {
   Future<void> initAdmob({String? adjustAppToken, String? distinctId}) async {
     await MobileAds.instance.initialize();
     unawaited(AdReferrerManager.instance.getReferrer());
+    unawaited(AdUserGroupManager.instance.getUserGroup());
     final normalizedAdjustAppToken = (adjustAppToken ?? '').trim();
     if (normalizedAdjustAppToken.isNotEmpty) {
       unawaited(
@@ -90,6 +92,14 @@ class FlutterPdfAdPlugins {
     } else {
       _logGeneral('init-admob-skip-adjust empty-app-token');
     }
+  }
+
+  Future<String?> getAndroidId() {
+    return AdUserGroupManager.instance.getAndroidId();
+  }
+
+  Future<int?> getCurrentUserGroup() {
+    return AdUserGroupManager.instance.getUserGroup();
   }
 
   void updateProductCooldownSeconds(int seconds) {
@@ -361,8 +371,7 @@ class FlutterPdfAdPlugins {
     required bool force,
   }) async {
     await _syncLoaderConfigs(loader);
-    final resolvedConfigs =
-        configs ?? await _resolveConfigsForPlacement(placement);
+    final resolvedConfigs = await _resolveConfigsForLoad(placement, configs);
     return loader.loadPlacement(
       placement,
       configs: resolvedConfigs,
@@ -439,11 +448,20 @@ class FlutterPdfAdPlugins {
   }
 
   Future<void> _syncLoaderConfigs(FlutterPdfAdLoader<Object> loader) async {
-    loader.updateConfigs(await _resolveActiveConfigs());
+    final activeConfigs = await _resolveActiveConfigs();
+    loader.updateConfigs(activeConfigs);
+    final stalePlacements = loader.cacheMap.keys
+        .where((placement) => !activeConfigs.containsKey(placement))
+        .toList(growable: false);
+    for (final placement in stalePlacements) {
+      await loader.clearPlacementCache(placement);
+      _logGeneral('clear-stale-cache placement=$placement');
+    }
   }
 
   Future<Map<Object, List<AdInfoBean>>> _resolveActiveConfigs() async {
     final isFacebookUser = await _isFacebookUser();
+    final userGroup = await AdUserGroupManager.instance.getUserGroup();
     final keys = <Object>{..._defaultConfigs.keys, ..._facebookConfigs.keys};
     final resolved = <Object, List<AdInfoBean>>{};
 
@@ -453,7 +471,14 @@ class FlutterPdfAdPlugins {
           ? _facebookConfigs[key]
           : _defaultConfigs[key];
       if (selected != null) {
-        resolved[key] = selected;
+        final filtered = _filterConfigsByUserGroup(
+          key,
+          selected,
+          userGroup: userGroup,
+        );
+        if (filtered.isNotEmpty) {
+          resolved[key] = filtered;
+        }
       }
     }
 
@@ -464,10 +489,26 @@ class FlutterPdfAdPlugins {
     Object placement,
   ) async {
     final isFacebookUser = await _isFacebookUser();
-    if (isFacebookUser && (_facebookConfigs[placement]?.isNotEmpty ?? false)) {
-      return _facebookConfigs[placement];
+    final userGroup = await AdUserGroupManager.instance.getUserGroup();
+    final selected =
+        isFacebookUser && (_facebookConfigs[placement]?.isNotEmpty ?? false)
+        ? _facebookConfigs[placement]
+        : _defaultConfigs[placement];
+    if (selected == null) {
+      return null;
     }
-    return _defaultConfigs[placement];
+    return _filterConfigsByUserGroup(placement, selected, userGroup: userGroup);
+  }
+
+  Future<List<AdInfoBean>?> _resolveConfigsForLoad(
+    Object placement,
+    List<AdInfoBean>? configs,
+  ) async {
+    if (configs == null) {
+      return _resolveConfigsForPlacement(placement);
+    }
+    final userGroup = await AdUserGroupManager.instance.getUserGroup();
+    return _filterConfigsByUserGroup(placement, configs, userGroup: userGroup);
   }
 
   Future<bool> _isFacebookUser() async {
@@ -495,6 +536,37 @@ class FlutterPdfAdPlugins {
 
   bool _containsFacebook(String? value) {
     return (value ?? '').toLowerCase().contains('facebook');
+  }
+
+  List<AdInfoBean> _filterConfigsByUserGroup(
+    Object placement,
+    List<AdInfoBean> configs, {
+    required int? userGroup,
+  }) {
+    final filtered = configs
+        .where((config) {
+          final groups = config.userGroup ?? const <int>[];
+          if (groups.isEmpty) {
+            return true;
+          }
+          if (userGroup == null) {
+            return false;
+          }
+          return groups.contains(userGroup);
+        })
+        .toList(growable: false);
+
+    if (!kReleaseMode) {
+      debugPrint(
+        '[FlutterPdfAdPlugins] user-group-filter '
+        'placement=$placement '
+        'userGroup=${userGroup ?? 'null'} '
+        'before=${configs.length} '
+        'after=${filtered.length}',
+      );
+    }
+
+    return filtered;
   }
 
   void _logGeneral(String message) {
@@ -526,9 +598,10 @@ class FlutterPdfAdPlugins {
       }
     }
 
+    final resolvedConfigs = await _resolveConfigsForLoad(placement, configs);
     final entry = await loader.loadPlacement(
       placement,
-      configs: configs,
+      configs: resolvedConfigs,
       force: forceReload,
     );
     if (entry == null) {

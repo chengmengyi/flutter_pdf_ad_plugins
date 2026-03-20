@@ -16,4 +16,9 @@ class MethodChannelFlutterPdfAdPlugins extends FlutterPdfAdPluginsPlatform {
     );
     return version;
   }
+
+  @override
+  Future<String?> getAndroidId() async {
+    return methodChannel.invokeMethod<String>('getAndroidId');
+  }
 }
