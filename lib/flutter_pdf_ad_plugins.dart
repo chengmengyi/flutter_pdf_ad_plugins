@@ -11,6 +11,7 @@ import 'enum/ad_type.dart';
 import 'group/ad_user_group_manager.dart';
 import 'load/flutter_pdf_ad_loader.dart';
 import 'load/loaded_ad_cache_entry.dart';
+import 'revenue/ad_revenue_manager.dart';
 import 'shield/ad_adjust_manager.dart';
 import 'shield/ad_referrer_manager.dart';
 import 'shield/referrer_block_config.dart';
@@ -69,7 +70,10 @@ class FlutterPdfAdPlugins {
   final Map<Object, List<AdInfoBean>> _facebookConfigs =
       <Object, List<AdInfoBean>>{};
   final Set<Object> _interstitialLikeNativePlacements = <Object>{};
+  final Set<Object> _showingPlacements = <Object>{};
   _LastShownAdRecord? _lastShownAdRecord;
+  void Function(String eventName)? _onOneDayRevenueEvent;
+  void Function(String eventName)? _onTotalRevenueEvent;
   bool _isBlacklistUser = false;
   final Set<String> _cmpCountryCodes = <String>{..._defaultCmpCountryCodes};
   ReferrerBlockConfig _referrerBlockConfig = const ReferrerBlockConfig(
@@ -114,6 +118,22 @@ class FlutterPdfAdPlugins {
     _interstitialLikeNativePlacements
       ..clear()
       ..addAll(placements.map((placement) => placement as Object));
+  }
+
+  void updateTachi25RevenueConfig(Map<String, dynamic>? json) {
+    AdRevenueManager.instance.updateDailyThresholdConfig(json);
+  }
+
+  void setOnTachi25OneDayRevenueEvent(
+    void Function(String eventName)? callback,
+  ) {
+    _onOneDayRevenueEvent = callback;
+  }
+
+  void setOnTachi25TotalRevenueEvent(
+    void Function(String eventName)? callback,
+  ) {
+    _onTotalRevenueEvent = callback;
   }
 
   void updateReferrerBlockConfig(Map<String, dynamic> json) {
@@ -250,6 +270,7 @@ class FlutterPdfAdPlugins {
       defaultAdRequest: defaultAdRequest,
       bannerSize: bannerSize,
       nativeTemplateStyle: nativeTemplateStyle,
+      onPaidEvent: _handleAdPaidEvent,
       placementLabelBuilder: placementLabelBuilder == null
           ? null
           : (placement) => placementLabelBuilder(placement as K),
@@ -692,48 +713,63 @@ class FlutterPdfAdPlugins {
 
     final adType = cachedEntry.info.parsedAdType;
     if (adType == AdType.native) {
+      if (!_showingPlacements.add(placement)) {
+        _log(
+          'show-failed',
+          placement,
+          cachedEntry.info,
+          extra: 'adType=native reason=already-showing',
+        );
+        return false;
+      }
       if (context == null) {
         _log('show-native-missing-context', placement, cachedEntry.info);
         _logGeneral(
           'show-failed placement=$placement reason=native-missing-context',
         );
+        _showingPlacements.remove(placement);
         return false;
       }
       if (!context.mounted) {
         _logGeneral(
           'show-failed placement=$placement reason=context-unmounted',
         );
+        _showingPlacements.remove(placement);
         return false;
       }
 
-      final shown = await _showNativeAd(
-        context,
-        loader,
-        placement,
-        cachedEntry,
-      );
-      if (shown.shown) {
-        _recordShownAd(
-          cachedEntry.info,
-          enableNativeCooldown: enableNativeCooldown,
-        );
-        _log(
-          'show-success',
+      try {
+        final shown = await _showNativeAd(
+          context,
+          loader,
           placement,
-          cachedEntry.info,
-          extra: 'adType=native',
+          cachedEntry,
         );
-      } else {
-        _log(
-          'show-failed',
-          placement,
-          cachedEntry.info,
-          extra:
-              'adType=native '
-              'reason=${shown.failureReason ?? 'unknown'}',
-        );
+        if (shown.shown) {
+          _recordShownAd(
+            cachedEntry.info,
+            enableNativeCooldown: enableNativeCooldown,
+          );
+          _log(
+            'show-success',
+            placement,
+            cachedEntry.info,
+            extra: 'adType=native',
+          );
+        } else {
+          _log(
+            'show-failed',
+            placement,
+            cachedEntry.info,
+            extra:
+                'adType=native '
+                'reason=${shown.failureReason ?? 'unknown'}',
+          );
+        }
+        return shown.shown;
+      } finally {
+        _showingPlacements.remove(placement);
       }
-      return shown.shown;
     }
 
     final shown = await loader.showCachedAdWithResult(
@@ -759,6 +795,66 @@ class FlutterPdfAdPlugins {
       );
     }
     return shown.shown;
+  }
+
+  Future<void> _handleAdPaidEvent(
+    Object placement,
+    AdInfoBean info,
+    Ad ad,
+    double valueMicros,
+    PrecisionType precision,
+    String currencyCode,
+  ) async {
+    final revenue = valueMicros / 1000000;
+    _log(
+      'paid-event',
+      placement,
+      info,
+      extra:
+          'valueMicros=$valueMicros revenue=$revenue '
+          'precision=$precision currencyCode=$currencyCode '
+          'adClass=${ad.runtimeType}',
+    );
+
+    final revenueResult = await AdRevenueManager.instance.recordRevenue(
+      revenue,
+    );
+    _log(
+      'show-revenue',
+      placement,
+      info,
+      extra:
+          'revenue=${revenueResult.revenue} '
+          'dailyRevenue=${revenueResult.dailyRevenue} '
+          'totalRevenue=${revenueResult.totalRevenue} '
+          'currencyCode=$currencyCode',
+    );
+
+    final triggeredEvents = revenueResult.triggeredEvents;
+    if (triggeredEvents.isEmpty) {
+      return;
+    }
+
+    for (final eventName in triggeredEvents) {
+      if (eventName.startsWith('AdLTV_OneDay_')) {
+        _log(
+          'paid-event-trigger-one-day',
+          placement,
+          info,
+          extra: 'eventName=$eventName revenue=$revenue',
+        );
+        _onOneDayRevenueEvent?.call(eventName);
+        continue;
+      }
+
+      _log(
+        'paid-event-trigger-total',
+        placement,
+        info,
+        extra: 'eventName=$eventName revenue=$revenue',
+      );
+      _onTotalRevenueEvent?.call(eventName);
+    }
   }
 
   Future<bool> _isBlockedByShield(Object placement, AdInfoBean info) async {

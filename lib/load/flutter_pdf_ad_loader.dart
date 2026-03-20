@@ -17,12 +17,22 @@ class FlutterPdfAdLoader<K> {
     AdSize? bannerSize,
     NativeTemplateStyle? nativeTemplateStyle,
     String Function(K placement)? placementLabelBuilder,
+    void Function(
+      K placement,
+      AdInfoBean info,
+      Ad ad,
+      double valueMicros,
+      PrecisionType precision,
+      String currencyCode,
+    )?
+    onPaidEvent,
   }) : _defaultAdRequest = defaultAdRequest ?? const AdRequest(),
        _bannerSize = bannerSize ?? AdSize.banner,
        _nativeTemplateStyle =
            nativeTemplateStyle ??
            NativeTemplateStyle(templateType: TemplateType.medium),
-       _placementLabelBuilder = placementLabelBuilder {
+       _placementLabelBuilder = placementLabelBuilder,
+       _onPaidEvent = onPaidEvent {
     updateConfigs(initialConfigs);
   }
 
@@ -30,6 +40,15 @@ class FlutterPdfAdLoader<K> {
   final AdSize _bannerSize;
   final NativeTemplateStyle _nativeTemplateStyle;
   final String Function(K placement)? _placementLabelBuilder;
+  final void Function(
+    K placement,
+    AdInfoBean info,
+    Ad ad,
+    double valueMicros,
+    PrecisionType precision,
+    String currencyCode,
+  )?
+  _onPaidEvent;
 
   final Map<K, List<AdInfoBean>> _configs = {};
   final Map<K, List<LoadedAdCacheEntry>> _cacheMap = {};
@@ -361,7 +380,7 @@ class FlutterPdfAdLoader<K> {
         timers.add(timer);
       }
 
-      final result = await _loadAd(config);
+      final result = await _loadAd(placement, config);
       completedIndexes.add(index);
       final nextActiveCount = (_activeRequestCounts[placement] ?? 1) - 1;
       if (nextActiveCount <= 0) {
@@ -454,7 +473,7 @@ class FlutterPdfAdLoader<K> {
     return true;
   }
 
-  Future<_AdLoadResult> _loadAd(AdInfoBean info) async {
+  Future<_AdLoadResult> _loadAd(K placement, AdInfoBean info) async {
     final adType = info.parsedAdType;
     final adId = info.adId;
     if (adType == null || adId == null || adId.isEmpty) {
@@ -463,19 +482,23 @@ class FlutterPdfAdLoader<K> {
 
     switch (adType) {
       case AdType.appOpen:
-        return _loadAppOpenAd(adId);
+        return _loadAppOpenAd(placement, info, adId);
       case AdType.interstitial:
-        return _loadInterstitialAd(adId);
+        return _loadInterstitialAd(placement, info, adId);
       case AdType.native:
-        return _loadNativeAd(adId);
+        return _loadNativeAd(placement, info, adId);
       case AdType.rewarded:
-        return _loadRewardedAd(adId);
+        return _loadRewardedAd(placement, info, adId);
       case AdType.banner:
-        return _loadBannerAd(adId);
+        return _loadBannerAd(placement, info, adId);
     }
   }
 
-  Future<_AdLoadResult> _loadAppOpenAd(String adId) async {
+  Future<_AdLoadResult> _loadAppOpenAd(
+    K placement,
+    AdInfoBean info,
+    String adId,
+  ) async {
     final completer = Completer<_AdLoadResult>();
 
     void completeFailure(String reason) {
@@ -494,6 +517,7 @@ class FlutterPdfAdLoader<K> {
               ad.dispose();
               return;
             }
+            ad.onPaidEvent = _buildOnPaidEvent(placement, info);
             completer.complete(_AdLoadResult.success(ad));
           },
           onAdFailedToLoad: (error) {
@@ -509,7 +533,11 @@ class FlutterPdfAdLoader<K> {
     return completer.future;
   }
 
-  Future<_AdLoadResult> _loadInterstitialAd(String adId) async {
+  Future<_AdLoadResult> _loadInterstitialAd(
+    K placement,
+    AdInfoBean info,
+    String adId,
+  ) async {
     final completer = Completer<_AdLoadResult>();
 
     void completeFailure(String reason) {
@@ -528,6 +556,7 @@ class FlutterPdfAdLoader<K> {
               ad.dispose();
               return;
             }
+            ad.onPaidEvent = _buildOnPaidEvent(placement, info);
             completer.complete(_AdLoadResult.success(ad));
           },
           onAdFailedToLoad: (error) {
@@ -543,7 +572,11 @@ class FlutterPdfAdLoader<K> {
     return completer.future;
   }
 
-  Future<_AdLoadResult> _loadRewardedAd(String adId) async {
+  Future<_AdLoadResult> _loadRewardedAd(
+    K placement,
+    AdInfoBean info,
+    String adId,
+  ) async {
     final completer = Completer<_AdLoadResult>();
 
     void completeFailure(String reason) {
@@ -562,6 +595,7 @@ class FlutterPdfAdLoader<K> {
               ad.dispose();
               return;
             }
+            ad.onPaidEvent = _buildOnPaidEvent(placement, info);
             completer.complete(_AdLoadResult.success(ad));
           },
           onAdFailedToLoad: (error) {
@@ -577,7 +611,11 @@ class FlutterPdfAdLoader<K> {
     return completer.future;
   }
 
-  Future<_AdLoadResult> _loadBannerAd(String adId) async {
+  Future<_AdLoadResult> _loadBannerAd(
+    K placement,
+    AdInfoBean info,
+    String adId,
+  ) async {
     final completer = Completer<_AdLoadResult>();
 
     void completeFailure(String reason) {
@@ -603,6 +641,7 @@ class FlutterPdfAdLoader<K> {
             'code=${error.code} message=${error.message} domain=${error.domain}',
           );
         },
+        onPaidEvent: _buildOnPaidEvent(placement, info),
       ),
       request: _defaultAdRequest,
     );
@@ -617,7 +656,11 @@ class FlutterPdfAdLoader<K> {
     return completer.future;
   }
 
-  Future<_AdLoadResult> _loadNativeAd(String adId) async {
+  Future<_AdLoadResult> _loadNativeAd(
+    K placement,
+    AdInfoBean info,
+    String adId,
+  ) async {
     final completer = Completer<_AdLoadResult>();
 
     void completeFailure(String reason) {
@@ -642,6 +685,7 @@ class FlutterPdfAdLoader<K> {
             'code=${error.code} message=${error.message} domain=${error.domain}',
           );
         },
+        onPaidEvent: _buildOnPaidEvent(placement, info),
       ),
       request: _defaultAdRequest,
       nativeTemplateStyle: _nativeTemplateStyle,
@@ -655,6 +699,16 @@ class FlutterPdfAdLoader<K> {
     }
 
     return completer.future;
+  }
+
+  OnPaidEventCallback? _buildOnPaidEvent(K placement, AdInfoBean info) {
+    final onPaidEvent = _onPaidEvent;
+    if (onPaidEvent == null) {
+      return null;
+    }
+    return (ad, valueMicros, precision, currencyCode) {
+      onPaidEvent(placement, info, ad, valueMicros, precision, currencyCode);
+    };
   }
 
   void _logLoadStart(K placement, AdInfoBean info) {

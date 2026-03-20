@@ -18,10 +18,20 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
+  static const Map<String, double> _tachi25RevenueConfig = <String, double>{
+    'reader_oneday_top10': 1,
+    'reader_oneday_top20': 0.8,
+    'reader_oneday_top30': 0.6,
+    'reader_oneday_top40': 0.5,
+    'reader_oneday_top50': 0.1,
+  };
+
   String _configStatus = '正在读取本地广告配置...';
   String _startupStatus = '等待启动流程...';
   String _umpStatus = 'UMP 未执行';
   String _preloadStatus = '开屏广告未预加载';
+  String _oneDayRevenueEvent = '单日收入回调未触发';
+  String _totalRevenueEvent = '累计收入回调未触发';
   String? _configPath;
   int _placementCount = 0;
   int _adUnitCount = 0;
@@ -46,6 +56,25 @@ class _MyAppState extends State<MyApp> {
   Future<void> _loadConfig() async {
     try {
       final configs = await loadLocalPlacementConfigs();
+      FlutterPdfAdPlugins.instance.updateTachi25RevenueConfig(
+        _tachi25RevenueConfig,
+      );
+      FlutterPdfAdPlugins.instance.setOnTachi25OneDayRevenueEvent((eventName) {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _oneDayRevenueEvent = eventName;
+        });
+      });
+      FlutterPdfAdPlugins.instance.setOnTachi25TotalRevenueEvent((eventName) {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _totalRevenueEvent = eventName;
+        });
+      });
       FlutterPdfAdPlugins.instance.updateInterstitialLikeNativePlacements(
         const [AdPlacement.prMainTools],
       );
@@ -140,6 +169,10 @@ class _MyAppState extends State<MyApp> {
                   Text(_umpStatus),
                   const SizedBox(height: 8),
                   Text(_preloadStatus),
+                  const SizedBox(height: 8),
+                  Text('单日收入回调: $_oneDayRevenueEvent'),
+                  const SizedBox(height: 8),
+                  Text('累计收入回调: $_totalRevenueEvent'),
                   const SizedBox(height: 8),
                   Text('当前配置文件: ${_configPath ?? "-"}'),
                   const SizedBox(height: 8),
