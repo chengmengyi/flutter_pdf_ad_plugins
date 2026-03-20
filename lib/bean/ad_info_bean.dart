@@ -39,6 +39,15 @@ class AdInfoBean {
 
   AdType? get parsedAdType => AdTypeX.tryParse(adType);
 
+  String get logSummary {
+    return 'adId=$adId, '
+        'adPlat=$adPlat, '
+        'adType=$adType, '
+        'sort=$sort, '
+        'exportTime=$exportTime, '
+        'userGroup=$userGroup';
+  }
+
   Map<String, dynamic> toJson() {
     final map = <String, dynamic>{};
     map['adId'] = adId;

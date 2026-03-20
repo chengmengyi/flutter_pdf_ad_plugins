@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_pdf_ad_plugins/flutter_pdf_ad_plugins.dart';
 
+import 'ad_placement.dart';
+
 const String _androidLocalAdConfigPath =
     'assets/admob_test_config_android.json';
 const String _iosLocalAdConfigPath = 'assets/admob_test_config_ios.json';

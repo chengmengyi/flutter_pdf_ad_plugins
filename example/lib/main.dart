@@ -3,6 +3,7 @@ import 'dart:async';
 
 import 'package:flutter_pdf_ad_plugins/flutter_pdf_ad_plugins.dart';
 
+import 'ad_placement.dart';
 import 'local_ad_config.dart';
 
 void main() {
@@ -17,8 +18,6 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  final FlutterPdfAdLoader _adLoader = FlutterPdfAdLoader();
-
   String _configStatus = '正在读取本地广告配置...';
   String? _configPath;
   int _placementCount = 0;
@@ -32,14 +31,20 @@ class _MyAppState extends State<MyApp> {
 
   @override
   void dispose() {
-    unawaited(_adLoader.dispose());
+    unawaited(FlutterPdfAdPlugins.instance.disposeLoader());
     super.dispose();
   }
 
   Future<void> _loadConfig() async {
     try {
       final configs = await loadLocalPlacementConfigs();
-      _adLoader.updateConfigs(configs);
+      FlutterPdfAdPlugins.instance.updateInterstitialLikeNativePlacements(
+        const [AdPlacement.prMainTools],
+      );
+      FlutterPdfAdPlugins.instance.updateConfigs<AdPlacement>(
+        configs,
+        placementLabelBuilder: (placement) => placement.jsonKey,
+      );
       final adUnitCount = configs.values.fold<int>(
         0,
         (total, items) => total + items.length,
@@ -96,6 +101,26 @@ class _MyAppState extends State<MyApp> {
                 TextButton(
                   onPressed: _initAdmob,
                   child: const Text('初始化admob'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    FlutterPdfAdPlugins.instance.preloadAll<AdPlacement>(
+                      placements: const [
+                        AdPlacement.prLaunch,
+                        AdPlacement.prNewGuideNat1,
+                      ],
+                    );
+                  },
+                  child: const Text('加载pr_launch和pr_new_guide_nat1'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    FlutterPdfAdPlugins.instance.showCachedAd(
+                      AdPlacement.prLaunch,
+                      context: context,
+                    );
+                  },
+                  child: const Text('显示pr_launch'),
                 ),
               ],
             ),
