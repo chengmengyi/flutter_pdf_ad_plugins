@@ -174,6 +174,26 @@ class _MyAppState extends State<MyApp> {
                   },
                   child: const Text('显示pr_launch'),
                 ),
+                TextButton(
+                  onPressed: () {
+                    FlutterPdfAdPlugins.instance.preloadAll<AdPlacement>(
+                      placements: const [
+                        AdPlacement.prMainTools,
+                      ],
+                    );
+                  },
+                  child: const Text('加载prMainTools'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    FlutterPdfAdPlugins.instance.showCachedAd(
+                      AdPlacement.prMainTools,
+                      context: context,
+                      enableNativeCooldown: true,
+                    );
+                  },
+                  child: const Text('显示prMainTools'),
+                ),
               ],
             ),
           ),

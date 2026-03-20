@@ -825,8 +825,16 @@ class FlutterPdfAdPlugins {
     final interstitialLike = _interstitialLikeNativePlacements.contains(
       placement,
     );
+    final navigator =
+        Navigator.maybeOf(context, rootNavigator: true) ??
+        Navigator.maybeOf(context);
+    if (navigator == null) {
+      _log('show-native-missing-navigator', placement, entry.info);
+      return false;
+    }
+
     if (interstitialLike) {
-      await Navigator.of(context).push(
+      await navigator.push(
         MaterialPageRoute<void>(
           builder: (_) => _NativeInterstitialPage(ad: ad),
           fullscreenDialog: true,
@@ -834,7 +842,8 @@ class FlutterPdfAdPlugins {
       );
     } else {
       await showDialog<void>(
-        context: context,
+        context: navigator.context,
+        useRootNavigator: true,
         builder: (_) => _NativeDialog(ad: ad),
       );
     }
