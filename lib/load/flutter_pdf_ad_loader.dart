@@ -143,10 +143,10 @@ class FlutterPdfAdLoader<K> {
     if (ad is AppOpenAd) {
       ad.fullScreenContentCallback = FullScreenContentCallback<AppOpenAd>(
         onAdDismissedFullScreenContent: (_) {
-          unawaited(clearPlacementCache(placement));
+          unawaited(_reloadPlacementAfterShow(placement));
         },
         onAdFailedToShowFullScreenContent: (_, __) {
-          unawaited(clearPlacementCache(placement));
+          unawaited(_reloadPlacementAfterShow(placement));
         },
       );
       await ad.show();
@@ -156,10 +156,10 @@ class FlutterPdfAdLoader<K> {
     if (ad is InterstitialAd) {
       ad.fullScreenContentCallback = FullScreenContentCallback<InterstitialAd>(
         onAdDismissedFullScreenContent: (_) {
-          unawaited(clearPlacementCache(placement));
+          unawaited(_reloadPlacementAfterShow(placement));
         },
         onAdFailedToShowFullScreenContent: (_, __) {
-          unawaited(clearPlacementCache(placement));
+          unawaited(_reloadPlacementAfterShow(placement));
         },
       );
       await ad.show();
@@ -169,10 +169,10 @@ class FlutterPdfAdLoader<K> {
     if (ad is RewardedAd) {
       ad.fullScreenContentCallback = FullScreenContentCallback<RewardedAd>(
         onAdDismissedFullScreenContent: (_) {
-          unawaited(clearPlacementCache(placement));
+          unawaited(_reloadPlacementAfterShow(placement));
         },
         onAdFailedToShowFullScreenContent: (_, __) {
-          unawaited(clearPlacementCache(placement));
+          unawaited(_reloadPlacementAfterShow(placement));
         },
       );
       await ad.show(
@@ -219,6 +219,12 @@ class FlutterPdfAdLoader<K> {
     if (entry != null) {
       await entry.dispose();
     }
+  }
+
+  Future<void> _reloadPlacementAfterShow(K placement) async {
+    await clearPlacementCache(placement);
+    _logCacheReload(placement, trigger: 'close');
+    await loadPlacement(placement, force: true);
   }
 
   Future<void> dispose() async {
@@ -549,6 +555,17 @@ class FlutterPdfAdLoader<K> {
 
     debugPrint(
       '[FlutterPdfAdLoader] cache-expired placement=${_placementLabel(placement)} '
+      'trigger=$trigger',
+    );
+  }
+
+  void _logCacheReload(K placement, {required String trigger}) {
+    if (kReleaseMode) {
+      return;
+    }
+
+    debugPrint(
+      '[FlutterPdfAdLoader] reload-after-show placement=${_placementLabel(placement)} '
       'trigger=$trigger',
     );
   }

@@ -392,6 +392,8 @@ class FlutterPdfAdPlugins {
     }
 
     await loader.clearPlacementCache(placement);
+    _log('native-closed-reload', placement, entry.info);
+    unawaited(loader.loadPlacement(placement, force: true));
     return true;
   }
 
