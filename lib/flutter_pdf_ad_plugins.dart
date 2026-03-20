@@ -23,6 +23,9 @@ export 'load/flutter_pdf_ad_loader.dart';
 export 'load/loaded_ad_cache_entry.dart';
 export 'ump/ump_consent_result.dart';
 
+typedef OnAdPaidEventCallback =
+    void Function(double revenue, String currencyCode, AdInfoBean info);
+
 class FlutterPdfAdPlugins {
   static final FlutterPdfAdPlugins _adPlugins = FlutterPdfAdPlugins();
   static FlutterPdfAdPlugins get instance => _adPlugins;
@@ -72,6 +75,7 @@ class FlutterPdfAdPlugins {
   final Set<Object> _interstitialLikeNativePlacements = <Object>{};
   final Set<Object> _showingPlacements = <Object>{};
   _LastShownAdRecord? _lastShownAdRecord;
+  OnAdPaidEventCallback? _onAdPaidEvent;
   void Function(String eventName)? _onOneDayRevenueEvent;
   void Function(String eventName)? _onTotalRevenueEvent;
   bool _isBlacklistUser = false;
@@ -122,6 +126,10 @@ class FlutterPdfAdPlugins {
 
   void updateTachi25RevenueConfig(Map<String, dynamic>? json) {
     AdRevenueManager.instance.updateDailyThresholdConfig(json);
+  }
+
+  void setOnAdPaidEvent(OnAdPaidEventCallback? callback) {
+    _onAdPaidEvent = callback;
   }
 
   void setOnTachi25OneDayRevenueEvent(
@@ -829,6 +837,7 @@ class FlutterPdfAdPlugins {
           'totalRevenue=${revenueResult.totalRevenue} '
           'currencyCode=$currencyCode',
     );
+    _onAdPaidEvent?.call(revenue, currencyCode, info);
 
     final triggeredEvents = revenueResult.triggeredEvents;
     if (triggeredEvents.isEmpty) {

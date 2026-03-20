@@ -30,6 +30,7 @@ class _MyAppState extends State<MyApp> {
   String _startupStatus = '等待启动流程...';
   String _umpStatus = 'UMP 未执行';
   String _preloadStatus = '开屏广告未预加载';
+  String _paidEventStatus = '广告收益回调未触发';
   String _oneDayRevenueEvent = '单日收入回调未触发';
   String _totalRevenueEvent = '累计收入回调未触发';
   String? _configPath;
@@ -59,6 +60,19 @@ class _MyAppState extends State<MyApp> {
       FlutterPdfAdPlugins.instance.updateTachi25RevenueConfig(
         _tachi25RevenueConfig,
       );
+      FlutterPdfAdPlugins.instance.setOnAdPaidEvent((
+        revenue,
+        currencyCode,
+        info,
+      ) {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _paidEventStatus =
+              'revenue=$revenue currencyCode=$currencyCode adInfo=${info.logSummary}';
+        });
+      });
       FlutterPdfAdPlugins.instance.setOnTachi25OneDayRevenueEvent((eventName) {
         if (!mounted) {
           return;
@@ -169,6 +183,8 @@ class _MyAppState extends State<MyApp> {
                   Text(_umpStatus),
                   const SizedBox(height: 8),
                   Text(_preloadStatus),
+                  const SizedBox(height: 8),
+                  Text('广告收益回调: $_paidEventStatus'),
                   const SizedBox(height: 8),
                   Text('单日收入回调: $_oneDayRevenueEvent'),
                   const SizedBox(height: 8),
