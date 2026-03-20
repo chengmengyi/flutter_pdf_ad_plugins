@@ -8,7 +8,8 @@ abstract class FlutterPdfAdPluginsPlatform extends PlatformInterface {
 
   static final Object _token = Object();
 
-  static FlutterPdfAdPluginsPlatform _instance = MethodChannelFlutterPdfAdPlugins();
+  static FlutterPdfAdPluginsPlatform _instance =
+      MethodChannelFlutterPdfAdPlugins();
 
   /// The default instance of [FlutterPdfAdPluginsPlatform] to use.
   ///

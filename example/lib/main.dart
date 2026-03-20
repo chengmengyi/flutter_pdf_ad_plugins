@@ -17,9 +17,12 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
+  final FlutterPdfAdLoader _adLoader = FlutterPdfAdLoader();
+
   String _configStatus = '正在读取本地广告配置...';
   String? _configPath;
   int _placementCount = 0;
+  int _adUnitCount = 0;
 
   @override
   void initState() {
@@ -27,16 +30,28 @@ class _MyAppState extends State<MyApp> {
     unawaited(_loadConfig());
   }
 
+  @override
+  void dispose() {
+    unawaited(_adLoader.dispose());
+    super.dispose();
+  }
+
   Future<void> _loadConfig() async {
     try {
-      final config = await loadLocalAdConfig();
+      final configs = await loadLocalPlacementConfigs();
+      _adLoader.updateConfigs(configs);
+      final adUnitCount = configs.values.fold<int>(
+        0,
+        (total, items) => total + items.length,
+      );
       if (!mounted) {
         return;
       }
       setState(() {
         _configStatus = '已加载本地广告配置';
         _configPath = localAdConfigAssetPath;
-        _placementCount = config.length;
+        _placementCount = configs.length;
+        _adUnitCount = adUnitCount;
       });
     } catch (error) {
       if (!mounted) {
@@ -75,6 +90,8 @@ class _MyAppState extends State<MyApp> {
                 Text('当前配置文件: ${_configPath ?? "-"}'),
                 const SizedBox(height: 8),
                 Text('广告位数量: $_placementCount'),
+                const SizedBox(height: 8),
+                Text('广告单元数量: $_adUnitCount'),
                 const SizedBox(height: 16),
                 TextButton(
                   onPressed: _initAdmob,
