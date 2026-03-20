@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -11,15 +12,51 @@ import 'load/flutter_pdf_ad_loader.dart';
 import 'load/loaded_ad_cache_entry.dart';
 import 'shield/ad_referrer_manager.dart';
 import 'shield/referrer_block_config.dart';
+import 'ump/ump_consent_result.dart';
 
 export 'bean/ad_info_bean.dart';
 export 'enum/ad_type.dart';
 export 'load/flutter_pdf_ad_loader.dart';
 export 'load/loaded_ad_cache_entry.dart';
+export 'ump/ump_consent_result.dart';
 
 class FlutterPdfAdPlugins {
   static final FlutterPdfAdPlugins _adPlugins = FlutterPdfAdPlugins();
   static FlutterPdfAdPlugins get instance => _adPlugins;
+  static const Set<String> _defaultCmpCountryCodes = <String>{
+    'AT',
+    'BE',
+    'BG',
+    'HR',
+    'CY',
+    'CZ',
+    'DK',
+    'EE',
+    'FI',
+    'FR',
+    'DE',
+    'GR',
+    'HU',
+    'IE',
+    'IT',
+    'LV',
+    'LT',
+    'LU',
+    'MT',
+    'NL',
+    'PL',
+    'PT',
+    'RO',
+    'SK',
+    'SI',
+    'ES',
+    'SE',
+    'NO',
+    'IS',
+    'LI',
+    'CH',
+    'GB',
+  };
 
   int _productCooldownSeconds = 30;
   int _inventoryCooldownSeconds = 30;
@@ -28,6 +65,7 @@ class FlutterPdfAdPlugins {
   final Set<Object> _interstitialLikeNativePlacements = <Object>{};
   _LastShownAdRecord? _lastShownAdRecord;
   bool _isBlacklistUser = false;
+  final Set<String> _cmpCountryCodes = <String>{..._defaultCmpCountryCodes};
   ReferrerBlockConfig _referrerBlockConfig = const ReferrerBlockConfig(
     door: 0,
     ilve: <String>[],
@@ -71,6 +109,109 @@ class FlutterPdfAdPlugins {
     debugPrint(
       '[FlutterPdfAdPlugins] update-blacklist-status isBlacklistUser=$_isBlacklistUser',
     );
+  }
+
+  void updateCmpCountryCodes(Iterable<String> countryCodes) {
+    _cmpCountryCodes
+      ..clear()
+      ..addAll(
+        countryCodes
+            .map((code) => code.trim().toUpperCase())
+            .where((code) => code.isNotEmpty),
+      );
+    if (kReleaseMode) {
+      return;
+    }
+    debugPrint(
+      '[FlutterPdfAdPlugins] update-cmp-country-codes $_cmpCountryCodes',
+    );
+  }
+
+  void resetCmpCountryCodes() {
+    _cmpCountryCodes
+      ..clear()
+      ..addAll(_defaultCmpCountryCodes);
+  }
+
+  String getCurrentCountryCode() {
+    final locale = ui.PlatformDispatcher.instance.locale;
+    return (locale.countryCode ?? '').toUpperCase();
+  }
+
+  bool shouldUseCmpForCurrentLocale() {
+    final countryCode = getCurrentCountryCode();
+    return _cmpCountryCodes.contains(countryCode);
+  }
+
+  Future<UmpConsentResult> handleUmpConsent({
+    ConsentRequestParameters? params,
+    bool loadAndShowFormIfRequired = true,
+  }) async {
+    final countryCode = getCurrentCountryCode();
+    final requiresCmpByLocale = _cmpCountryCodes.contains(countryCode);
+
+    if (!requiresCmpByLocale) {
+      final consentStatus = await ConsentInformation.instance
+          .getConsentStatus();
+      final canRequestAds = await ConsentInformation.instance.canRequestAds();
+      final privacyStatus = await ConsentInformation.instance
+          .getPrivacyOptionsRequirementStatus();
+      _logUmp(
+        'skip-by-locale',
+        extra:
+            'countryCode=$countryCode canRequestAds=$canRequestAds '
+            'consentStatus=$consentStatus privacyStatus=$privacyStatus',
+      );
+      return UmpConsentResult(
+        countryCode: countryCode,
+        requiresCmpByLocale: false,
+        canRequestAds: canRequestAds,
+        consentStatus: consentStatus,
+        privacyOptionsRequirementStatus: privacyStatus,
+      );
+    }
+
+    final requestParameters = params ?? ConsentRequestParameters();
+    final requestError = await _requestConsentInfoUpdate(requestParameters);
+    FormError? formError = requestError;
+
+    if (requestError == null && loadAndShowFormIfRequired) {
+      formError = await _loadAndShowConsentFormIfRequired();
+    }
+
+    final consentStatus = await ConsentInformation.instance.getConsentStatus();
+    final canRequestAds = await ConsentInformation.instance.canRequestAds();
+    final privacyStatus = await ConsentInformation.instance
+        .getPrivacyOptionsRequirementStatus();
+
+    _logUmp(
+      'handled',
+      extra:
+          'countryCode=$countryCode canRequestAds=$canRequestAds '
+          'consentStatus=$consentStatus privacyStatus=$privacyStatus '
+          'formError=${formError?.message ?? 'null'}',
+    );
+
+    return UmpConsentResult(
+      countryCode: countryCode,
+      requiresCmpByLocale: true,
+      canRequestAds: canRequestAds,
+      consentStatus: consentStatus,
+      privacyOptionsRequirementStatus: privacyStatus,
+      formError: formError,
+    );
+  }
+
+  Future<bool> canRequestAds() {
+    return ConsentInformation.instance.canRequestAds();
+  }
+
+  Future<PrivacyOptionsRequirementStatus> getPrivacyOptionsRequirementStatus() {
+    return ConsentInformation.instance.getPrivacyOptionsRequirementStatus();
+  }
+
+  Future<FormError?> showPrivacyOptionsForm() {
+    return _showPrivacyOptionsForm();
   }
 
   void configureLoader<K>({
@@ -505,6 +646,82 @@ class FlutterPdfAdPlugins {
         ..write(extra);
     }
 
+    debugPrint(buffer.toString());
+  }
+
+  Future<FormError?> _requestConsentInfoUpdate(
+    ConsentRequestParameters params,
+  ) async {
+    final completer = Completer<FormError?>();
+    ConsentInformation.instance.requestConsentInfoUpdate(
+      params,
+      () {
+        if (!completer.isCompleted) {
+          completer.complete(null);
+        }
+      },
+      (error) {
+        _logUmp(
+          'request-consent-info-failed',
+          extra: 'code=${error.errorCode} message=${error.message}',
+        );
+        if (!completer.isCompleted) {
+          completer.complete(error);
+        }
+      },
+    );
+    return completer.future;
+  }
+
+  Future<FormError?> _loadAndShowConsentFormIfRequired() async {
+    final completer = Completer<FormError?>();
+    await ConsentForm.loadAndShowConsentFormIfRequired((formError) {
+      if (!completer.isCompleted) {
+        completer.complete(formError);
+      }
+    });
+    final error = await completer.future;
+    if (error != null) {
+      _logUmp(
+        'load-and-show-form-failed',
+        extra: 'code=${error.errorCode} message=${error.message}',
+      );
+    } else {
+      _logUmp('load-and-show-form-success');
+    }
+    return error;
+  }
+
+  Future<FormError?> _showPrivacyOptionsForm() async {
+    final completer = Completer<FormError?>();
+    await ConsentForm.showPrivacyOptionsForm((formError) {
+      if (!completer.isCompleted) {
+        completer.complete(formError);
+      }
+    });
+    final error = await completer.future;
+    if (error != null) {
+      _logUmp(
+        'show-privacy-options-failed',
+        extra: 'code=${error.errorCode} message=${error.message}',
+      );
+    } else {
+      _logUmp('show-privacy-options-success');
+    }
+    return error;
+  }
+
+  void _logUmp(String stage, {String? extra}) {
+    if (kReleaseMode) {
+      return;
+    }
+
+    final buffer = StringBuffer()..write('[FlutterPdfAdPlugins][UMP] $stage');
+    if (extra != null && extra.isNotEmpty) {
+      buffer
+        ..write(' ')
+        ..write(extra);
+    }
     debugPrint(buffer.toString());
   }
 }
