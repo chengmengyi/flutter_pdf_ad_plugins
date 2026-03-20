@@ -10,6 +10,7 @@ import 'bean/ad_info_bean.dart';
 import 'enum/ad_type.dart';
 import 'load/flutter_pdf_ad_loader.dart';
 import 'load/loaded_ad_cache_entry.dart';
+import 'shield/ad_adjust_manager.dart';
 import 'shield/ad_referrer_manager.dart';
 import 'shield/referrer_block_config.dart';
 import 'ump/ump_consent_result.dart';
@@ -62,6 +63,10 @@ class FlutterPdfAdPlugins {
   int _inventoryCooldownSeconds = 30;
 
   FlutterPdfAdLoader<Object>? _adLoader;
+  final Map<Object, List<AdInfoBean>> _defaultConfigs =
+      <Object, List<AdInfoBean>>{};
+  final Map<Object, List<AdInfoBean>> _facebookConfigs =
+      <Object, List<AdInfoBean>>{};
   final Set<Object> _interstitialLikeNativePlacements = <Object>{};
   _LastShownAdRecord? _lastShownAdRecord;
   bool _isBlacklistUser = false;
@@ -71,9 +76,20 @@ class FlutterPdfAdPlugins {
     ilve: <String>[],
   );
 
-  Future<void> initAdmob() async {
+  Future<void> initAdmob({String? adjustAppToken, String? distinctId}) async {
     await MobileAds.instance.initialize();
     unawaited(AdReferrerManager.instance.getReferrer());
+    final normalizedAdjustAppToken = (adjustAppToken ?? '').trim();
+    if (normalizedAdjustAppToken.isNotEmpty) {
+      unawaited(
+        AdAdjustManager.instance.initialize(
+          appToken: normalizedAdjustAppToken,
+          distinctId: distinctId,
+        ),
+      );
+    } else {
+      _logGeneral('init-admob-skip-adjust empty-app-token');
+    }
   }
 
   void updateProductCooldownSeconds(int seconds) {
@@ -234,10 +250,10 @@ class FlutterPdfAdPlugins {
     Map<K, List<AdInfoBean>> configs, {
     String Function(K placement)? placementLabelBuilder,
   }) {
-    final loader = _ensureLoader<K>(
-      placementLabelBuilder: placementLabelBuilder,
-    );
-    loader.updateConfigs(_boxConfigs(configs));
+    _defaultConfigs
+      ..clear()
+      ..addAll(_boxConfigs(configs));
+    _ensureLoader<K>(placementLabelBuilder: placementLabelBuilder);
   }
 
   void updatePlacementConfig<K>(
@@ -245,10 +261,31 @@ class FlutterPdfAdPlugins {
     List<AdInfoBean> configs, {
     String Function(K placement)? placementLabelBuilder,
   }) {
-    final loader = _ensureLoader<K>(
-      placementLabelBuilder: placementLabelBuilder,
+    _defaultConfigs[placement as Object] = List<AdInfoBean>.unmodifiable(
+      configs,
     );
-    loader.updatePlacementConfig(placement as Object, configs);
+    _ensureLoader<K>(placementLabelBuilder: placementLabelBuilder);
+  }
+
+  void updateFacebookConfigs<K>(
+    Map<K, List<AdInfoBean>> configs, {
+    String Function(K placement)? placementLabelBuilder,
+  }) {
+    _facebookConfigs
+      ..clear()
+      ..addAll(_boxConfigs(configs));
+    _ensureLoader<K>(placementLabelBuilder: placementLabelBuilder);
+  }
+
+  void updateFacebookPlacementConfig<K>(
+    K placement,
+    List<AdInfoBean> configs, {
+    String Function(K placement)? placementLabelBuilder,
+  }) {
+    _facebookConfigs[placement as Object] = List<AdInfoBean>.unmodifiable(
+      configs,
+    );
+    _ensureLoader<K>(placementLabelBuilder: placementLabelBuilder);
   }
 
   Future<LoadedAdCacheEntry?> loadPlacement<K>(
@@ -260,20 +297,23 @@ class FlutterPdfAdPlugins {
     final loader = _ensureLoader<K>(
       placementLabelBuilder: placementLabelBuilder,
     );
-    return loader.loadPlacement(
+    return _loadPlacementWithAudience(
+      loader,
       placement as Object,
       configs: configs,
       force: force,
     );
   }
 
-  Future<LoadedAdCacheEntry?> getCachedEntry<K>(K placement) {
+  Future<LoadedAdCacheEntry?> getCachedEntry<K>(K placement) async {
     final loader = _ensureLoader<K>();
+    await _syncLoaderConfigs(loader);
     return loader.getCachedEntry(placement as Object);
   }
 
-  Future<Ad?> getCachedAd<K>(K placement) {
+  Future<Ad?> getCachedAd<K>(K placement) async {
     final loader = _ensureLoader<K>();
+    await _syncLoaderConfigs(loader);
     return loader.getCachedAd(placement as Object);
   }
 
@@ -284,9 +324,66 @@ class FlutterPdfAdPlugins {
     OnUserEarnedRewardCallback? onUserEarnedReward,
   }) {
     final loader = _ensureLoader<K>();
-    return _showPlacement(
+    return _showCachedAdWithAudience(
       loader,
       placement as Object,
+      context: context,
+      enableNativeCooldown: enableNativeCooldown,
+      onUserEarnedReward: onUserEarnedReward,
+    );
+  }
+
+  Future<void> preloadAll<K>({
+    Iterable<K>? placements,
+    bool force = false,
+    String Function(K placement)? placementLabelBuilder,
+  }) async {
+    final loader = _ensureLoader<K>(
+      placementLabelBuilder: placementLabelBuilder,
+    );
+    await _syncLoaderConfigs(loader);
+    await loader.preloadAll(
+      placements: placements?.map((placement) => placement as Object),
+      force: force,
+    );
+  }
+
+  Future<void> clearPlacementCache<K>(K placement) async {
+    final loader = _ensureLoader<K>();
+    await _syncLoaderConfigs(loader);
+    return loader.clearPlacementCache(placement as Object);
+  }
+
+  Future<LoadedAdCacheEntry?> _loadPlacementWithAudience(
+    FlutterPdfAdLoader<Object> loader,
+    Object placement, {
+    required List<AdInfoBean>? configs,
+    required bool force,
+  }) async {
+    await _syncLoaderConfigs(loader);
+    final resolvedConfigs =
+        configs ?? await _resolveConfigsForPlacement(placement);
+    return loader.loadPlacement(
+      placement,
+      configs: resolvedConfigs,
+      force: force,
+    );
+  }
+
+  Future<bool> _showCachedAdWithAudience(
+    FlutterPdfAdLoader<Object> loader,
+    Object placement, {
+    required BuildContext? context,
+    required bool enableNativeCooldown,
+    required OnUserEarnedRewardCallback? onUserEarnedReward,
+  }) async {
+    await _syncLoaderConfigs(loader);
+    if (context != null && !context.mounted) {
+      return false;
+    }
+    return _showPlacement(
+      loader,
+      placement,
       context: context,
       enableNativeCooldown: enableNativeCooldown,
       onUserEarnedReward: onUserEarnedReward,
@@ -316,25 +413,6 @@ class FlutterPdfAdPlugins {
     );
   }
 
-  Future<void> preloadAll<K>({
-    Iterable<K>? placements,
-    bool force = false,
-    String Function(K placement)? placementLabelBuilder,
-  }) {
-    final loader = _ensureLoader<K>(
-      placementLabelBuilder: placementLabelBuilder,
-    );
-    return loader.preloadAll(
-      placements: placements?.map((placement) => placement as Object),
-      force: force,
-    );
-  }
-
-  Future<void> clearPlacementCache<K>(K placement) {
-    final loader = _ensureLoader<K>();
-    return loader.clearPlacementCache(placement as Object);
-  }
-
   Future<void> disposeLoader() async {
     final loader = _adLoader;
     _adLoader = null;
@@ -358,6 +436,72 @@ class FlutterPdfAdPlugins {
     return configs.map(
       (placement, items) => MapEntry(placement as Object, items),
     );
+  }
+
+  Future<void> _syncLoaderConfigs(FlutterPdfAdLoader<Object> loader) async {
+    loader.updateConfigs(await _resolveActiveConfigs());
+  }
+
+  Future<Map<Object, List<AdInfoBean>>> _resolveActiveConfigs() async {
+    final isFacebookUser = await _isFacebookUser();
+    final keys = <Object>{..._defaultConfigs.keys, ..._facebookConfigs.keys};
+    final resolved = <Object, List<AdInfoBean>>{};
+
+    for (final key in keys) {
+      final selected =
+          isFacebookUser && (_facebookConfigs[key]?.isNotEmpty ?? false)
+          ? _facebookConfigs[key]
+          : _defaultConfigs[key];
+      if (selected != null) {
+        resolved[key] = selected;
+      }
+    }
+
+    return resolved;
+  }
+
+  Future<List<AdInfoBean>?> _resolveConfigsForPlacement(
+    Object placement,
+  ) async {
+    final isFacebookUser = await _isFacebookUser();
+    if (isFacebookUser && (_facebookConfigs[placement]?.isNotEmpty ?? false)) {
+      return _facebookConfigs[placement];
+    }
+    return _defaultConfigs[placement];
+  }
+
+  Future<bool> _isFacebookUser() async {
+    final referrer = await AdReferrerManager.instance.getReferrer();
+    final attribution = await AdAdjustManager.instance.getAttribution();
+    final referrerContainsFacebook = _containsFacebook(referrer);
+    final adjustContainsFacebook = AdAdjustManager.instance.containsFacebook(
+      attribution,
+    );
+    final isFacebookUser = referrerContainsFacebook || adjustContainsFacebook;
+
+    if (!kReleaseMode) {
+      debugPrint(
+        '[FlutterPdfAdPlugins] facebook-user-check '
+        'isFacebookUser=$isFacebookUser '
+        'referrerContainsFacebook=$referrerContainsFacebook '
+        'adjustContainsFacebook=$adjustContainsFacebook '
+        'referrer=${referrer ?? 'null'} '
+        'adjust=${AdAdjustManager.instance.summary(attribution)}',
+      );
+    }
+
+    return isFacebookUser;
+  }
+
+  bool _containsFacebook(String? value) {
+    return (value ?? '').toLowerCase().contains('facebook');
+  }
+
+  void _logGeneral(String message) {
+    if (kReleaseMode) {
+      return;
+    }
+    debugPrint('[FlutterPdfAdPlugins] $message');
   }
 
   Future<bool> _loadAndShowPlacement(
