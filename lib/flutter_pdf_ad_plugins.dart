@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +9,8 @@ import 'bean/ad_info_bean.dart';
 import 'enum/ad_type.dart';
 import 'load/flutter_pdf_ad_loader.dart';
 import 'load/loaded_ad_cache_entry.dart';
+import 'shield/ad_referrer_manager.dart';
+import 'shield/referrer_block_config.dart';
 
 export 'bean/ad_info_bean.dart';
 export 'enum/ad_type.dart';
@@ -24,9 +27,15 @@ class FlutterPdfAdPlugins {
   FlutterPdfAdLoader<Object>? _adLoader;
   final Set<Object> _interstitialLikeNativePlacements = <Object>{};
   _LastShownAdRecord? _lastShownAdRecord;
+  bool _isBlacklistUser = false;
+  ReferrerBlockConfig _referrerBlockConfig = const ReferrerBlockConfig(
+    door: 0,
+    ilve: <String>[],
+  );
 
   Future<void> initAdmob() async {
     await MobileAds.instance.initialize();
+    unawaited(AdReferrerManager.instance.getReferrer());
   }
 
   void updateProductCooldownSeconds(int seconds) {
@@ -41,6 +50,27 @@ class FlutterPdfAdPlugins {
     _interstitialLikeNativePlacements
       ..clear()
       ..addAll(placements.map((placement) => placement as Object));
+  }
+
+  void updateReferrerBlockConfig(Map<String, dynamic> json) {
+    _referrerBlockConfig = ReferrerBlockConfig.fromJson(json);
+    if (kReleaseMode) {
+      return;
+    }
+    debugPrint(
+      '[FlutterPdfAdPlugins] update-referrer-block-config '
+      '${_referrerBlockConfig.logSummary}',
+    );
+  }
+
+  void updateBlacklistStatus(bool isBlacklistUser) {
+    _isBlacklistUser = isBlacklistUser;
+    if (kReleaseMode) {
+      return;
+    }
+    debugPrint(
+      '[FlutterPdfAdPlugins] update-blacklist-status isBlacklistUser=$_isBlacklistUser',
+    );
   }
 
   void configureLoader<K>({
@@ -252,6 +282,14 @@ class FlutterPdfAdPlugins {
       return false;
     }
 
+    final blockedByShield = await _isBlockedByShield(
+      placement,
+      cachedEntry.info,
+    );
+    if (blockedByShield) {
+      return false;
+    }
+
     final cooldownResult = _getCooldownBlockReason(
       cachedEntry.info,
       enableNativeCooldown: enableNativeCooldown,
@@ -272,6 +310,9 @@ class FlutterPdfAdPlugins {
     if (adType == AdType.native) {
       if (context == null) {
         _log('show-native-missing-context', placement, cachedEntry.info);
+        return false;
+      }
+      if (!context.mounted) {
         return false;
       }
 
@@ -298,6 +339,55 @@ class FlutterPdfAdPlugins {
       _recordShownAd(cachedEntry.info, enableNativeCooldown: true);
     }
     return shown;
+  }
+
+  Future<bool> _isBlockedByShield(Object placement, AdInfoBean info) async {
+    if (_isBlacklistUser) {
+      _log(
+        'show-blacklist-blocked',
+        placement,
+        info,
+        extra: 'isBlacklistUser=true',
+      );
+      return true;
+    }
+
+    if (!_referrerBlockConfig.isEnabled) {
+      return false;
+    }
+
+    if (!Platform.isAndroid) {
+      return false;
+    }
+
+    final referrer = await AdReferrerManager.instance.getReferrer();
+    _log(
+      'show-referrer-read',
+      placement,
+      info,
+      extra: 'referrer=${referrer ?? 'null'}',
+    );
+    final blocked = _referrerBlockConfig.shouldBlock(referrer);
+    if (blocked) {
+      _log(
+        'show-referrer-blocked',
+        placement,
+        info,
+        extra:
+            'referrer=${referrer ?? 'null'} '
+            'config=${_referrerBlockConfig.logSummary}',
+      );
+    } else {
+      _log(
+        'show-referrer-allowed',
+        placement,
+        info,
+        extra:
+            'referrer=${referrer ?? 'null'} '
+            'config=${_referrerBlockConfig.logSummary}',
+      );
+    }
+    return blocked;
   }
 
   _CooldownBlockReason? _getCooldownBlockReason(
