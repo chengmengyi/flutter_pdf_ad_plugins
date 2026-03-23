@@ -24,8 +24,39 @@ export 'load/flutter_pdf_ad_loader.dart';
 export 'load/loaded_ad_cache_entry.dart';
 export 'ump/ump_consent_result.dart';
 
-typedef OnAdPaidEventCallback =
-    void Function(double revenue, String currencyCode, AdInfoBean info);
+abstract class FlutterPdfAdListener {
+  const FlutterPdfAdListener();
+
+  void onAdPaidEvent(double revenue, String currencyCode, AdInfoBean info) {}
+
+  void onTachi25OneDayRevenueEvent(String eventName) {}
+
+  void onTachi25TotalRevenueEvent(String eventName) {}
+}
+
+class _CallbackFlutterPdfAdListener extends FlutterPdfAdListener {
+  _CallbackFlutterPdfAdListener();
+
+  void Function(double revenue, String currencyCode, AdInfoBean info)?
+  onAdPaidEventCallback;
+  void Function(String eventName)? onTachi25OneDayRevenueEventCallback;
+  void Function(String eventName)? onTachi25TotalRevenueEventCallback;
+
+  @override
+  void onAdPaidEvent(double revenue, String currencyCode, AdInfoBean info) {
+    onAdPaidEventCallback?.call(revenue, currencyCode, info);
+  }
+
+  @override
+  void onTachi25OneDayRevenueEvent(String eventName) {
+    onTachi25OneDayRevenueEventCallback?.call(eventName);
+  }
+
+  @override
+  void onTachi25TotalRevenueEvent(String eventName) {
+    onTachi25TotalRevenueEventCallback?.call(eventName);
+  }
+}
 
 class FlutterPdfAdPlugins {
   static final FlutterPdfAdPlugins _adPlugins = FlutterPdfAdPlugins();
@@ -77,9 +108,9 @@ class FlutterPdfAdPlugins {
   final Set<Object> _interstitialLikeNativePlacements = <Object>{};
   final Set<Object> _showingPlacements = <Object>{};
   _LastShownAdRecord? _lastShownAdRecord;
-  OnAdPaidEventCallback? _onAdPaidEvent;
-  void Function(String eventName)? _onOneDayRevenueEvent;
-  void Function(String eventName)? _onTotalRevenueEvent;
+  FlutterPdfAdListener? _listener;
+  final _CallbackFlutterPdfAdListener _legacyCallbackListener =
+      _CallbackFlutterPdfAdListener();
   bool _isBlacklistUser = false;
   final Set<String> _cmpCountryCodes = <String>{..._defaultCmpCountryCodes};
   ReferrerBlockConfig _referrerBlockConfig = const ReferrerBlockConfig(
@@ -130,20 +161,33 @@ class FlutterPdfAdPlugins {
     AdRevenueManager.instance.updateDailyThresholdConfig(json);
   }
 
-  void setOnAdPaidEvent(OnAdPaidEventCallback? callback) {
-    _onAdPaidEvent = callback;
+  void setListener(FlutterPdfAdListener? listener) {
+    _listener = listener;
   }
 
+  @Deprecated('Use setListener(FlutterPdfAdListener?) instead.')
+  void setOnAdPaidEvent(
+    void Function(double revenue, String currencyCode, AdInfoBean info)?
+    callback,
+  ) {
+    _legacyCallbackListener.onAdPaidEventCallback = callback;
+    _listener = _legacyCallbackListener;
+  }
+
+  @Deprecated('Use setListener(FlutterPdfAdListener?) instead.')
   void setOnTachi25OneDayRevenueEvent(
     void Function(String eventName)? callback,
   ) {
-    _onOneDayRevenueEvent = callback;
+    _legacyCallbackListener.onTachi25OneDayRevenueEventCallback = callback;
+    _listener = _legacyCallbackListener;
   }
 
+  @Deprecated('Use setListener(FlutterPdfAdListener?) instead.')
   void setOnTachi25TotalRevenueEvent(
     void Function(String eventName)? callback,
   ) {
-    _onTotalRevenueEvent = callback;
+    _legacyCallbackListener.onTachi25TotalRevenueEventCallback = callback;
+    _listener = _legacyCallbackListener;
   }
 
   void updateReferrerBlockConfig(Map<String, dynamic> json) {
@@ -840,7 +884,7 @@ class FlutterPdfAdPlugins {
           'totalRevenue=${revenueResult.totalRevenue} '
           'currencyCode=$currencyCode',
     );
-    _onAdPaidEvent?.call(revenue, currencyCode, info);
+    _listener?.onAdPaidEvent(revenue, currencyCode, info);
 
     final triggeredEvents = revenueResult.triggeredEvents;
     if (triggeredEvents.isEmpty) {
@@ -855,7 +899,7 @@ class FlutterPdfAdPlugins {
           info,
           extra: 'eventName=$eventName revenue=$revenue',
         );
-        _onOneDayRevenueEvent?.call(eventName);
+        _listener?.onTachi25OneDayRevenueEvent(eventName);
         continue;
       }
 
@@ -865,7 +909,7 @@ class FlutterPdfAdPlugins {
         info,
         extra: 'eventName=$eventName revenue=$revenue',
       );
-      _onTotalRevenueEvent?.call(eventName);
+      _listener?.onTachi25TotalRevenueEvent(eventName);
     }
   }
 

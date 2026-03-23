@@ -10,6 +10,34 @@ void main() {
   runApp(const MyApp());
 }
 
+class _ExampleAdListener extends FlutterPdfAdListener {
+  _ExampleAdListener({
+    required this.onPaidEvent,
+    required this.onOneDayRevenueEvent,
+    required this.onTotalRevenueEvent,
+  });
+
+  final void Function(double revenue, String currencyCode, AdInfoBean info)
+  onPaidEvent;
+  final void Function(String eventName) onOneDayRevenueEvent;
+  final void Function(String eventName) onTotalRevenueEvent;
+
+  @override
+  void onAdPaidEvent(double revenue, String currencyCode, AdInfoBean info) {
+    onPaidEvent(revenue, currencyCode, info);
+  }
+
+  @override
+  void onTachi25OneDayRevenueEvent(String eventName) {
+    onOneDayRevenueEvent(eventName);
+  }
+
+  @override
+  void onTachi25TotalRevenueEvent(String eventName) {
+    onTotalRevenueEvent(eventName);
+  }
+}
+
 class MyApp extends StatefulWidget {
   const MyApp({super.key});
 
@@ -60,35 +88,35 @@ class _MyAppState extends State<MyApp> {
       FlutterPdfAdPlugins.instance.updateTachi25RevenueConfig(
         _tachi25RevenueConfig,
       );
-      FlutterPdfAdPlugins.instance.setOnAdPaidEvent((
-        revenue,
-        currencyCode,
-        info,
-      ) {
-        if (!mounted) {
-          return;
-        }
-        setState(() {
-          _paidEventStatus =
-              'revenue=$revenue currencyCode=$currencyCode adInfo=${info.logSummary}';
-        });
-      });
-      FlutterPdfAdPlugins.instance.setOnTachi25OneDayRevenueEvent((eventName) {
-        if (!mounted) {
-          return;
-        }
-        setState(() {
-          _oneDayRevenueEvent = eventName;
-        });
-      });
-      FlutterPdfAdPlugins.instance.setOnTachi25TotalRevenueEvent((eventName) {
-        if (!mounted) {
-          return;
-        }
-        setState(() {
-          _totalRevenueEvent = eventName;
-        });
-      });
+      FlutterPdfAdPlugins.instance.setListener(
+        _ExampleAdListener(
+          onPaidEvent: (revenue, currencyCode, info) {
+            if (!mounted) {
+              return;
+            }
+            setState(() {
+              _paidEventStatus =
+                  'revenue=$revenue currencyCode=$currencyCode adInfo=${info.logSummary}';
+            });
+          },
+          onOneDayRevenueEvent: (eventName) {
+            if (!mounted) {
+              return;
+            }
+            setState(() {
+              _oneDayRevenueEvent = eventName;
+            });
+          },
+          onTotalRevenueEvent: (eventName) {
+            if (!mounted) {
+              return;
+            }
+            setState(() {
+              _totalRevenueEvent = eventName;
+            });
+          },
+        ),
+      );
       FlutterPdfAdPlugins.instance.updateInterstitialLikeNativePlacements(
         const [AdPlacement.prMainTools],
       );
