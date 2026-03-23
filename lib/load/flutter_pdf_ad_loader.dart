@@ -169,13 +169,11 @@ class FlutterPdfAdLoader<K> {
     if (ad is AppOpenAd) {
       final completer = Completer<ShowAdResult>();
       ad.fullScreenContentCallback = FullScreenContentCallback<AppOpenAd>(
-        onAdShowedFullScreenContent: (_) {
+        onAdDismissedFullScreenContent: (_) async {
+          await _consumeShownEntryAfterShow(placement, entry);
           if (!completer.isCompleted) {
             completer.complete(const ShowAdResult.success());
           }
-        },
-        onAdDismissedFullScreenContent: (_) {
-          unawaited(_consumeShownEntryAfterShow(placement, entry));
         },
         onAdFailedToShowFullScreenContent: (_, error) {
           if (!completer.isCompleted) {
@@ -199,13 +197,11 @@ class FlutterPdfAdLoader<K> {
     if (ad is InterstitialAd) {
       final completer = Completer<ShowAdResult>();
       ad.fullScreenContentCallback = FullScreenContentCallback<InterstitialAd>(
-        onAdShowedFullScreenContent: (_) {
+        onAdDismissedFullScreenContent: (_) async {
+          await _consumeShownEntryAfterShow(placement, entry);
           if (!completer.isCompleted) {
             completer.complete(const ShowAdResult.success());
           }
-        },
-        onAdDismissedFullScreenContent: (_) {
-          unawaited(_consumeShownEntryAfterShow(placement, entry));
         },
         onAdFailedToShowFullScreenContent: (_, error) {
           if (!completer.isCompleted) {
@@ -229,13 +225,11 @@ class FlutterPdfAdLoader<K> {
     if (ad is RewardedAd) {
       final completer = Completer<ShowAdResult>();
       ad.fullScreenContentCallback = FullScreenContentCallback<RewardedAd>(
-        onAdShowedFullScreenContent: (_) {
+        onAdDismissedFullScreenContent: (_) async {
+          await _consumeShownEntryAfterShow(placement, entry);
           if (!completer.isCompleted) {
             completer.complete(const ShowAdResult.success());
           }
-        },
-        onAdDismissedFullScreenContent: (_) {
-          unawaited(_consumeShownEntryAfterShow(placement, entry));
         },
         onAdFailedToShowFullScreenContent: (_, error) {
           if (!completer.isCompleted) {
