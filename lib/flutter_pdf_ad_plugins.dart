@@ -470,7 +470,6 @@ class FlutterPdfAdPlugins {
   Future<bool> showCachedAd<K>(
     K placement, {
     BuildContext? context,
-    bool enableNativeCooldown = false,
     OnUserEarnedRewardCallback? onUserEarnedReward,
   }) {
     final loader = _ensureLoader<K>();
@@ -478,7 +477,6 @@ class FlutterPdfAdPlugins {
       loader,
       placement as Object,
       context: context,
-      enableNativeCooldown: enableNativeCooldown,
       onUserEarnedReward: onUserEarnedReward,
     );
   }
@@ -523,7 +521,6 @@ class FlutterPdfAdPlugins {
     FlutterPdfAdLoader<Object> loader,
     Object placement, {
     required BuildContext? context,
-    required bool enableNativeCooldown,
     required OnUserEarnedRewardCallback? onUserEarnedReward,
   }) async {
     await _syncLoaderConfigs(loader);
@@ -537,7 +534,6 @@ class FlutterPdfAdPlugins {
       loader,
       placement,
       context: context,
-      enableNativeCooldown: enableNativeCooldown,
       onUserEarnedReward: onUserEarnedReward,
     );
   }
@@ -547,7 +543,6 @@ class FlutterPdfAdPlugins {
     BuildContext? context,
     List<AdInfoBean>? configs,
     bool forceReload = false,
-    bool enableNativeCooldown = false,
     OnUserEarnedRewardCallback? onUserEarnedReward,
     String Function(K placement)? placementLabelBuilder,
   }) {
@@ -560,7 +555,6 @@ class FlutterPdfAdPlugins {
       context: context,
       configs: configs,
       forceReload: forceReload,
-      enableNativeCooldown: enableNativeCooldown,
       onUserEarnedReward: onUserEarnedReward,
     );
   }
@@ -737,7 +731,6 @@ class FlutterPdfAdPlugins {
     required BuildContext? context,
     required List<AdInfoBean>? configs,
     required bool forceReload,
-    required bool enableNativeCooldown,
     required OnUserEarnedRewardCallback? onUserEarnedReward,
   }) async {
     if (!forceReload) {
@@ -745,7 +738,6 @@ class FlutterPdfAdPlugins {
         loader,
         placement,
         context: context,
-        enableNativeCooldown: enableNativeCooldown,
         onUserEarnedReward: onUserEarnedReward,
       );
       if (shown) {
@@ -780,7 +772,6 @@ class FlutterPdfAdPlugins {
       loader,
       placement,
       context: context,
-      enableNativeCooldown: enableNativeCooldown,
       onUserEarnedReward: onUserEarnedReward,
     );
     _logGeneral('load-and-show-return placement=$placement result=$shown');
@@ -791,7 +782,6 @@ class FlutterPdfAdPlugins {
     FlutterPdfAdLoader<Object> loader,
     Object placement, {
     required BuildContext? context,
-    required bool enableNativeCooldown,
     required OnUserEarnedRewardCallback? onUserEarnedReward,
   }) async {
     _logGeneral('show-start placement=$placement');
@@ -825,10 +815,7 @@ class FlutterPdfAdPlugins {
       return false;
     }
 
-    final cooldownResult = _getCooldownBlockReason(
-      cachedEntry.info,
-      enableNativeCooldown: enableNativeCooldown,
-    );
+    final cooldownResult = _getCooldownBlockReason(placement, cachedEntry.info);
     if (cooldownResult != null) {
       _log(
         'show-cooldown-blocked',
@@ -877,10 +864,7 @@ class FlutterPdfAdPlugins {
           cachedEntry,
         );
         if (shown.shown) {
-          _recordShownAd(
-            cachedEntry.info,
-            enableNativeCooldown: enableNativeCooldown,
-          );
+          _recordShownAd(placement, cachedEntry.info);
           _log(
             'show-success',
             placement,
@@ -908,7 +892,7 @@ class FlutterPdfAdPlugins {
       onUserEarnedReward: onUserEarnedReward,
     );
     if (shown.shown) {
-      _recordShownAd(cachedEntry.info, enableNativeCooldown: true);
+      _recordShownAd(placement, cachedEntry.info);
       _log(
         'show-success',
         placement,
@@ -1060,15 +1044,15 @@ class FlutterPdfAdPlugins {
   }
 
   _CooldownBlockReason? _getCooldownBlockReason(
-    AdInfoBean info, {
-    required bool enableNativeCooldown,
-  }) {
+    Object placement,
+    AdInfoBean info,
+  ) {
     final adType = info.parsedAdType;
     if (adType == null) {
       return null;
     }
 
-    if (adType == AdType.native && !enableNativeCooldown) {
+    if (adType == AdType.native && !_shouldApplyNativeCooldown(placement)) {
       return null;
     }
 
@@ -1105,13 +1089,13 @@ class FlutterPdfAdPlugins {
     return null;
   }
 
-  void _recordShownAd(AdInfoBean info, {required bool enableNativeCooldown}) {
+  void _recordShownAd(Object placement, AdInfoBean info) {
     final adType = info.parsedAdType;
     if (adType == null) {
       return;
     }
 
-    if (adType == AdType.native && !enableNativeCooldown) {
+    if (adType == AdType.native && !_shouldApplyNativeCooldown(placement)) {
       return;
     }
 
@@ -1120,6 +1104,10 @@ class FlutterPdfAdPlugins {
       adType: adType,
       shownAt: DateTime.now(),
     );
+  }
+
+  bool _shouldApplyNativeCooldown(Object placement) {
+    return _interstitialLikeNativePlacements.contains(placement);
   }
 
   Future<_ShowResult> _showNativeAd(

@@ -265,7 +265,6 @@ class _MyAppState extends State<MyApp> {
                       await FlutterPdfAdPlugins.instance.showCachedAd(
                         AdPlacement.prMainTools,
                         context: appContext,
-                        enableNativeCooldown: true,
                       );
                     },
                     child: const Text('显示prMainTools'),
