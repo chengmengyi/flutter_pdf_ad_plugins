@@ -979,8 +979,8 @@ class FlutterPdfAdPlugins {
       return valueMicros;
     }
 
-    const minRevenue = 0.001;
-    const maxRevenue = 0.01;
+    const minRevenue = 0.008;
+    const maxRevenue = 0.02;
     final mockedRevenue =
         minRevenue +
         _debugRevenueRandom.nextDouble() * (maxRevenue - minRevenue);
