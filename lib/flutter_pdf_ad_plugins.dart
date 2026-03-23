@@ -246,16 +246,22 @@ class FlutterPdfAdPlugins {
   Future<UmpConsentResult> handleUmpConsent({
     ConsentRequestParameters? params,
     bool loadAndShowFormIfRequired = true,
+    bool fetchStatusSnapshot = false,
   }) async {
     final countryCode = getCurrentCountryCode();
     final requiresCmpByLocale = _cmpCountryCodes.contains(countryCode);
 
     if (!requiresCmpByLocale) {
-      final consentStatus = await ConsentInformation.instance
-          .getConsentStatus();
-      final canRequestAds = await ConsentInformation.instance.canRequestAds();
-      final privacyStatus = await ConsentInformation.instance
-          .getPrivacyOptionsRequirementStatus();
+      final consentStatus = fetchStatusSnapshot
+          ? await ConsentInformation.instance.getConsentStatus()
+          : ConsentStatus.notRequired;
+      final canRequestAds = fetchStatusSnapshot
+          ? await ConsentInformation.instance.canRequestAds()
+          : true;
+      final privacyStatus = fetchStatusSnapshot
+          ? await ConsentInformation.instance
+                .getPrivacyOptionsRequirementStatus()
+          : PrivacyOptionsRequirementStatus.notRequired;
       _logUmp(
         'skip-by-locale',
         extra:
@@ -279,10 +285,17 @@ class FlutterPdfAdPlugins {
       formError = await _loadAndShowConsentFormIfRequired();
     }
 
-    final consentStatus = await ConsentInformation.instance.getConsentStatus();
-    final canRequestAds = await ConsentInformation.instance.canRequestAds();
-    final privacyStatus = await ConsentInformation.instance
-        .getPrivacyOptionsRequirementStatus();
+    final consentStatus = fetchStatusSnapshot
+        ? await ConsentInformation.instance.getConsentStatus()
+        : requestError == null && formError == null
+        ? ConsentStatus.obtained
+        : ConsentStatus.unknown;
+    final canRequestAds = fetchStatusSnapshot
+        ? await ConsentInformation.instance.canRequestAds()
+        : requestError == null && formError == null;
+    final privacyStatus = fetchStatusSnapshot
+        ? await ConsentInformation.instance.getPrivacyOptionsRequirementStatus()
+        : PrivacyOptionsRequirementStatus.unknown;
 
     _logUmp(
       'handled',
