@@ -106,6 +106,8 @@ class FlutterPdfAdPlugins {
   final Map<Object, List<AdInfoBean>> _facebookConfigs =
       <Object, List<AdInfoBean>>{};
   final Set<Object> _interstitialLikeNativePlacements = <Object>{};
+  final Set<Object> _smallTemplateNativePlacements = <Object>{};
+  final Set<Object> _skipReloadAfterClosePlacements = <Object>{};
   final Set<Object> _showingPlacements = <Object>{};
   _LastShownAdRecord? _lastShownAdRecord;
   FlutterPdfAdListener? _listener;
@@ -155,6 +157,21 @@ class FlutterPdfAdPlugins {
     _interstitialLikeNativePlacements
       ..clear()
       ..addAll(placements.map((placement) => placement as Object));
+  }
+
+  void updateSmallTemplateNativePlacements<K>(Iterable<K> placements) {
+    _smallTemplateNativePlacements
+      ..clear()
+      ..addAll(placements.map((placement) => placement as Object));
+  }
+
+  void updateSkipReloadAfterClosePlacements<K>(Iterable<K> placements) {
+    _skipReloadAfterClosePlacements
+      ..clear()
+      ..addAll(placements.map((placement) => placement as Object));
+    _adLoader?.updateSkipReloadAfterClosePlacements(
+      _skipReloadAfterClosePlacements,
+    );
   }
 
   void updateTachi25RevenueConfig(Map<String, dynamic>? json) {
@@ -337,10 +354,19 @@ class FlutterPdfAdPlugins {
       defaultAdRequest: defaultAdRequest,
       bannerSize: bannerSize,
       nativeTemplateStyle: nativeTemplateStyle,
+      nativeTemplateStyleBuilder: (placement) {
+        if (_smallTemplateNativePlacements.contains(placement)) {
+          return NativeTemplateStyle(templateType: TemplateType.small);
+        }
+        return null;
+      },
       onPaidEvent: _handleAdPaidEvent,
       placementLabelBuilder: placementLabelBuilder == null
           ? null
           : (placement) => placementLabelBuilder(placement as K),
+    );
+    _adLoader?.updateSkipReloadAfterClosePlacements(
+      _skipReloadAfterClosePlacements,
     );
   }
 
@@ -413,6 +439,12 @@ class FlutterPdfAdPlugins {
     final loader = _ensureLoader<K>();
     await _syncLoaderConfigs(loader);
     return loader.getCachedAd(placement as Object);
+  }
+
+  Future<Widget?> buildCachedAdWidget<K>(K placement) async {
+    final loader = _ensureLoader<K>();
+    await _syncLoaderConfigs(loader);
+    return loader.buildCachedAdWidget(placement as Object);
   }
 
   Future<bool> showCachedAd<K>(
