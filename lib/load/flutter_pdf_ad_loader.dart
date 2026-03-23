@@ -822,7 +822,7 @@ class FlutterPdfAdLoader<K> {
         return;
       }
       _logCacheReload(placement, trigger: 'close-empty-reload');
-      await loadPlacement(placement, force: true);
+      unawaited(loadPlacement(placement, force: true));
       return;
     }
 
