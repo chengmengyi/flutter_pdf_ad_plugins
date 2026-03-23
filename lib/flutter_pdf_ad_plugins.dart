@@ -108,6 +108,8 @@ class FlutterPdfAdPlugins {
   final Set<Object> _interstitialLikeNativePlacements = <Object>{};
   final Set<Object> _smallTemplateNativePlacements = <Object>{};
   final Set<Object> _skipReloadAfterClosePlacements = <Object>{};
+  final Map<Object, Set<VoidCallback>> _placementLoadedListeners =
+      <Object, Set<VoidCallback>>{};
   final Set<Object> _showingPlacements = <Object>{};
   _LastShownAdRecord? _lastShownAdRecord;
   FlutterPdfAdListener? _listener;
@@ -163,6 +165,23 @@ class FlutterPdfAdPlugins {
     _smallTemplateNativePlacements
       ..clear()
       ..addAll(placements.map((placement) => placement as Object));
+  }
+
+  void addPlacementLoadedListener<K>(K placement, VoidCallback listener) {
+    _placementLoadedListeners
+        .putIfAbsent(placement as Object, () => <VoidCallback>{})
+        .add(listener);
+  }
+
+  void removePlacementLoadedListener<K>(K placement, VoidCallback listener) {
+    final listeners = _placementLoadedListeners[placement as Object];
+    if (listeners == null) {
+      return;
+    }
+    listeners.remove(listener);
+    if (listeners.isEmpty) {
+      _placementLoadedListeners.remove(placement);
+    }
   }
 
   void updateSkipReloadAfterClosePlacements<K>(Iterable<K> placements) {
@@ -360,6 +379,7 @@ class FlutterPdfAdPlugins {
         }
         return null;
       },
+      onPlacementLoaded: _handlePlacementLoaded,
       onPaidEvent: _handleAdPaidEvent,
       placementLabelBuilder: placementLabelBuilder == null
           ? null
@@ -550,6 +570,8 @@ class FlutterPdfAdPlugins {
     _adLoader = null;
     _lastShownAdRecord = null;
     _interstitialLikeNativePlacements.clear();
+    _smallTemplateNativePlacements.clear();
+    _placementLoadedListeners.clear();
     if (loader != null) {
       await loader.dispose();
     }
@@ -697,6 +719,16 @@ class FlutterPdfAdPlugins {
       return;
     }
     debugPrint('[FlutterPdfAdPlugins] $message');
+  }
+
+  void _handlePlacementLoaded(Object placement, LoadedAdCacheEntry entry) {
+    final listeners = _placementLoadedListeners[placement];
+    if (listeners == null || listeners.isEmpty) {
+      return;
+    }
+    for (final listener in List<VoidCallback>.from(listeners)) {
+      listener();
+    }
   }
 
   Future<bool> _loadAndShowPlacement(
