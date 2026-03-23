@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -29,6 +30,7 @@ typedef OnAdPaidEventCallback =
 class FlutterPdfAdPlugins {
   static final FlutterPdfAdPlugins _adPlugins = FlutterPdfAdPlugins();
   static FlutterPdfAdPlugins get instance => _adPlugins;
+  static final Random _debugRevenueRandom = Random();
   static const Set<String> _defaultCmpCountryCodes = <String>{
     'AT',
     'BE',
@@ -813,13 +815,14 @@ class FlutterPdfAdPlugins {
     PrecisionType precision,
     String currencyCode,
   ) async {
-    final revenue = valueMicros / 1000000;
+    final effectiveValueMicros = _resolvePaidValueMicros(valueMicros);
+    final revenue = effectiveValueMicros / 1000000;
     _log(
       'paid-event',
       placement,
       info,
       extra:
-          'valueMicros=$valueMicros revenue=$revenue '
+          'valueMicros=$effectiveValueMicros originalValueMicros=$valueMicros revenue=$revenue '
           'precision=$precision currencyCode=$currencyCode '
           'adClass=${ad.runtimeType}',
     );
@@ -864,6 +867,26 @@ class FlutterPdfAdPlugins {
       );
       _onTotalRevenueEvent?.call(eventName);
     }
+  }
+
+  double _resolvePaidValueMicros(double valueMicros) {
+    if (!kDebugMode || valueMicros > 0) {
+      return valueMicros;
+    }
+
+    const minRevenue = 0.001;
+    const maxRevenue = 0.01;
+    final mockedRevenue =
+        minRevenue +
+        _debugRevenueRandom.nextDouble() * (maxRevenue - minRevenue);
+    final mockedValueMicros = mockedRevenue * 1000000;
+    _logGeneral(
+      'paid-event-debug-mock '
+      'originalValueMicros=$valueMicros '
+      'mockedValueMicros=$mockedValueMicros '
+      'mockedRevenue=$mockedRevenue',
+    );
+    return mockedValueMicros;
   }
 
   Future<bool> _isBlockedByShield(Object placement, AdInfoBean info) async {

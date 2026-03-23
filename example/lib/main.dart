@@ -233,8 +233,8 @@ class _MyAppState extends State<MyApp> {
                     child: const Text('加载prMainTools'),
                   ),
                   TextButton(
-                    onPressed: () async{
-                      var result = await FlutterPdfAdPlugins.instance.showCachedAd(
+                    onPressed: () async {
+                      await FlutterPdfAdPlugins.instance.showCachedAd(
                         AdPlacement.prMainTools,
                         context: appContext,
                         enableNativeCooldown: true,
