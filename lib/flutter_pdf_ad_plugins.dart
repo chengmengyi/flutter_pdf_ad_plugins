@@ -27,9 +27,14 @@ export 'ump/ump_consent_result.dart';
 abstract class FlutterPdfAdListener {
   const FlutterPdfAdListener();
 
-  void onAdShowSuccess(Object placement, String? posId, AdInfoBean info) {}
-
-  void onAdPaidEvent(double revenue, String currencyCode, AdInfoBean info) {}
+  void onAdPaidEvent(
+    Object placement,
+    double revenue,
+    String currencyCode,
+    String adNetwork,
+    String precisionType,
+    AdInfoBean info,
+  ) {}
 
   void onTachi25OneDayRevenueEvent(String eventName) {}
 
@@ -39,21 +44,35 @@ abstract class FlutterPdfAdListener {
 class _CallbackFlutterPdfAdListener extends FlutterPdfAdListener {
   _CallbackFlutterPdfAdListener();
 
-  void Function(Object placement, String? posId, AdInfoBean info)?
-  onAdShowSuccessCallback;
-  void Function(double revenue, String currencyCode, AdInfoBean info)?
+  void Function(
+    Object placement,
+    double revenue,
+    String currencyCode,
+    String adNetwork,
+    String precisionType,
+    AdInfoBean info,
+  )?
   onAdPaidEventCallback;
   void Function(String eventName)? onTachi25OneDayRevenueEventCallback;
   void Function(String eventName)? onTachi25TotalRevenueEventCallback;
 
   @override
-  void onAdShowSuccess(Object placement, String? posId, AdInfoBean info) {
-    onAdShowSuccessCallback?.call(placement, posId, info);
-  }
-
-  @override
-  void onAdPaidEvent(double revenue, String currencyCode, AdInfoBean info) {
-    onAdPaidEventCallback?.call(revenue, currencyCode, info);
+  void onAdPaidEvent(
+    Object placement,
+    double revenue,
+    String currencyCode,
+    String adNetwork,
+    String precisionType,
+    AdInfoBean info,
+  ) {
+    onAdPaidEventCallback?.call(
+      placement,
+      revenue,
+      currencyCode,
+      adNetwork,
+      precisionType,
+      info,
+    );
   }
 
   @override
@@ -212,7 +231,14 @@ class FlutterPdfAdPlugins {
 
   @Deprecated('Use setListener(FlutterPdfAdListener?) instead.')
   void setOnAdPaidEvent(
-    void Function(double revenue, String currencyCode, AdInfoBean info)?
+    void Function(
+      Object placement,
+      double revenue,
+      String currencyCode,
+      String adNetwork,
+      String precisionType,
+      AdInfoBean info,
+    )?
     callback,
   ) {
     _legacyCallbackListener.onAdPaidEventCallback = callback;
@@ -480,7 +506,6 @@ class FlutterPdfAdPlugins {
     K placement, {
     BuildContext? context,
     OnUserEarnedRewardCallback? onUserEarnedReward,
-    String? posId,
   }) {
     final loader = _ensureLoader<K>();
     return _showCachedAdWithAudience(
@@ -488,7 +513,6 @@ class FlutterPdfAdPlugins {
       placement as Object,
       context: context,
       onUserEarnedReward: onUserEarnedReward,
-      posId: posId,
     );
   }
 
@@ -533,7 +557,6 @@ class FlutterPdfAdPlugins {
     Object placement, {
     required BuildContext? context,
     required OnUserEarnedRewardCallback? onUserEarnedReward,
-    String? posId,
   }) async {
     await _syncLoaderConfigs(loader);
     if (context != null && !context.mounted) {
@@ -547,7 +570,6 @@ class FlutterPdfAdPlugins {
       placement,
       context: context,
       onUserEarnedReward: onUserEarnedReward,
-      posId: posId,
     );
   }
 
@@ -796,7 +818,6 @@ class FlutterPdfAdPlugins {
     Object placement, {
     required BuildContext? context,
     required OnUserEarnedRewardCallback? onUserEarnedReward,
-    String? posId,
   }) async {
     _logGeneral('show-start placement=$placement');
 
@@ -879,7 +900,6 @@ class FlutterPdfAdPlugins {
         );
         if (shown.shown) {
           _recordShownAd(placement, cachedEntry.info);
-          _listener?.onAdShowSuccess(placement, posId, cachedEntry.info);
           _log(
             'show-success',
             placement,
@@ -908,7 +928,6 @@ class FlutterPdfAdPlugins {
     );
     if (shown.shown) {
       _recordShownAd(placement, cachedEntry.info);
-      _listener?.onAdShowSuccess(placement, posId, cachedEntry.info);
       _log(
         'show-success',
         placement,
@@ -938,13 +957,17 @@ class FlutterPdfAdPlugins {
   ) async {
     final effectiveValueMicros = _resolvePaidValueMicros(valueMicros);
     final revenue = effectiveValueMicros / 1000000;
+    final adNetwork =
+        ad.responseInfo?.loadedAdapterResponseInfo?.adSourceName ?? "Admob";
+    final precisionType = precision.name;
     _log(
       'paid-event',
       placement,
       info,
       extra:
           'valueMicros=$effectiveValueMicros originalValueMicros=$valueMicros revenue=$revenue '
-          'precision=$precision currencyCode=$currencyCode '
+          'precision=$precision precisionType=$precisionType currencyCode=$currencyCode '
+          'adNetwork=$adNetwork '
           'adClass=${ad.runtimeType}',
     );
 
@@ -961,7 +984,14 @@ class FlutterPdfAdPlugins {
           'totalRevenue=${revenueResult.totalRevenue} '
           'currencyCode=$currencyCode',
     );
-    _listener?.onAdPaidEvent(revenue, currencyCode, info);
+    _listener?.onAdPaidEvent(
+      placement,
+      revenue,
+      currencyCode,
+      adNetwork,
+      precisionType,
+      info,
+    );
 
     final triggeredEvents = revenueResult.triggeredEvents;
     if (triggeredEvents.isEmpty) {

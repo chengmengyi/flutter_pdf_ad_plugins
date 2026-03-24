@@ -17,14 +17,35 @@ class _ExampleAdListener extends FlutterPdfAdListener {
     required this.onTotalRevenueEvent,
   });
 
-  final void Function(double revenue, String currencyCode, AdInfoBean info)
+  final void Function(
+    Object placement,
+    double revenue,
+    String currencyCode,
+    String adNetwork,
+    String precisionType,
+    AdInfoBean info,
+  )
   onPaidEvent;
   final void Function(String eventName) onOneDayRevenueEvent;
   final void Function(String eventName) onTotalRevenueEvent;
 
   @override
-  void onAdPaidEvent(double revenue, String currencyCode, AdInfoBean info) {
-    onPaidEvent(revenue, currencyCode, info);
+  void onAdPaidEvent(
+    Object placement,
+    double revenue,
+    String currencyCode,
+    String adNetwork,
+    String precisionType,
+    AdInfoBean info,
+  ) {
+    onPaidEvent(
+      placement,
+      revenue,
+      currencyCode,
+      adNetwork,
+      precisionType,
+      info,
+    );
   }
 
   @override
@@ -90,15 +111,25 @@ class _MyAppState extends State<MyApp> {
       );
       FlutterPdfAdPlugins.instance.setListener(
         _ExampleAdListener(
-          onPaidEvent: (revenue, currencyCode, info) {
-            if (!mounted) {
-              return;
-            }
-            setState(() {
-              _paidEventStatus =
-                  'revenue=$revenue currencyCode=$currencyCode adInfo=${info.logSummary}';
-            });
-          },
+          onPaidEvent:
+              (
+                placement,
+                revenue,
+                currencyCode,
+                adNetwork,
+                precisionType,
+                info,
+              ) {
+                if (!mounted) {
+                  return;
+                }
+                setState(() {
+                  _paidEventStatus =
+                      'placement=$placement revenue=$revenue currencyCode=$currencyCode '
+                      'adNetwork=$adNetwork precisionType=$precisionType '
+                      'adInfo=${info.logSummary}';
+                });
+              },
           onOneDayRevenueEvent: (eventName) {
             if (!mounted) {
               return;
