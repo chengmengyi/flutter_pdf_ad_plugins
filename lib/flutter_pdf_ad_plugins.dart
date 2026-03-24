@@ -27,6 +27,8 @@ export 'ump/ump_consent_result.dart';
 abstract class FlutterPdfAdListener {
   const FlutterPdfAdListener();
 
+  void onAdShowSuccess(Object placement, String? posId, AdInfoBean info) {}
+
   void onAdPaidEvent(double revenue, String currencyCode, AdInfoBean info) {}
 
   void onTachi25OneDayRevenueEvent(String eventName) {}
@@ -37,10 +39,17 @@ abstract class FlutterPdfAdListener {
 class _CallbackFlutterPdfAdListener extends FlutterPdfAdListener {
   _CallbackFlutterPdfAdListener();
 
+  void Function(Object placement, String? posId, AdInfoBean info)?
+  onAdShowSuccessCallback;
   void Function(double revenue, String currencyCode, AdInfoBean info)?
   onAdPaidEventCallback;
   void Function(String eventName)? onTachi25OneDayRevenueEventCallback;
   void Function(String eventName)? onTachi25TotalRevenueEventCallback;
+
+  @override
+  void onAdShowSuccess(Object placement, String? posId, AdInfoBean info) {
+    onAdShowSuccessCallback?.call(placement, posId, info);
+  }
 
   @override
   void onAdPaidEvent(double revenue, String currencyCode, AdInfoBean info) {
@@ -471,6 +480,7 @@ class FlutterPdfAdPlugins {
     K placement, {
     BuildContext? context,
     OnUserEarnedRewardCallback? onUserEarnedReward,
+    String? posId,
   }) {
     final loader = _ensureLoader<K>();
     return _showCachedAdWithAudience(
@@ -478,6 +488,7 @@ class FlutterPdfAdPlugins {
       placement as Object,
       context: context,
       onUserEarnedReward: onUserEarnedReward,
+      posId: posId,
     );
   }
 
@@ -522,6 +533,7 @@ class FlutterPdfAdPlugins {
     Object placement, {
     required BuildContext? context,
     required OnUserEarnedRewardCallback? onUserEarnedReward,
+    String? posId,
   }) async {
     await _syncLoaderConfigs(loader);
     if (context != null && !context.mounted) {
@@ -535,6 +547,7 @@ class FlutterPdfAdPlugins {
       placement,
       context: context,
       onUserEarnedReward: onUserEarnedReward,
+      posId: posId,
     );
   }
 
@@ -783,6 +796,7 @@ class FlutterPdfAdPlugins {
     Object placement, {
     required BuildContext? context,
     required OnUserEarnedRewardCallback? onUserEarnedReward,
+    String? posId,
   }) async {
     _logGeneral('show-start placement=$placement');
 
@@ -865,6 +879,7 @@ class FlutterPdfAdPlugins {
         );
         if (shown.shown) {
           _recordShownAd(placement, cachedEntry.info);
+          _listener?.onAdShowSuccess(placement, posId, cachedEntry.info);
           _log(
             'show-success',
             placement,
@@ -893,6 +908,7 @@ class FlutterPdfAdPlugins {
     );
     if (shown.shown) {
       _recordShownAd(placement, cachedEntry.info);
+      _listener?.onAdShowSuccess(placement, posId, cachedEntry.info);
       _log(
         'show-success',
         placement,
