@@ -139,6 +139,7 @@ class FlutterPdfAdPlugins {
   final Map<Object, Set<VoidCallback>> _placementLoadedListeners =
       <Object, Set<VoidCallback>>{};
   final Set<Object> _showingPlacements = <Object>{};
+  final Set<Object> _showingAdPlacements = <Object>{};
   _LastShownAdRecord? _lastShownAdRecord;
   FlutterPdfAdListener? _listener;
   final _CallbackFlutterPdfAdListener _legacyCallbackListener =
@@ -227,6 +228,10 @@ class FlutterPdfAdPlugins {
 
   void setListener(FlutterPdfAdListener? listener) {
     _listener = listener;
+  }
+
+  bool isShowingAd() {
+    return _showingAdPlacements.isNotEmpty;
   }
 
   @Deprecated('Use setListener(FlutterPdfAdListener?) instead.')
@@ -619,6 +624,8 @@ class FlutterPdfAdPlugins {
     _interstitialLikeNativePlacements.clear();
     _smallTemplateNativePlacements.clear();
     _placementLoadedListeners.clear();
+    _showingPlacements.clear();
+    _showingAdPlacements.clear();
     if (loader != null) {
       await loader.dispose();
     }
@@ -893,12 +900,19 @@ class FlutterPdfAdPlugins {
         );
         return false;
       }
+      final shouldTrackShowing = _interstitialLikeNativePlacements.contains(
+        placement,
+      );
+      if (shouldTrackShowing) {
+        _showingAdPlacements.add(placement);
+      }
       if (context == null) {
         _log('show-native-missing-context', placement, cachedEntry.info);
         _logGeneral(
           'show-failed placement=$placement reason=native-missing-context',
         );
         _showingPlacements.remove(placement);
+        _showingAdPlacements.remove(placement);
         return false;
       }
       if (!context.mounted) {
@@ -906,6 +920,7 @@ class FlutterPdfAdPlugins {
           'show-failed placement=$placement reason=context-unmounted',
         );
         _showingPlacements.remove(placement);
+        _showingAdPlacements.remove(placement);
         return false;
       }
 
@@ -937,32 +952,38 @@ class FlutterPdfAdPlugins {
         return shown.shown;
       } finally {
         _showingPlacements.remove(placement);
+        _showingAdPlacements.remove(placement);
       }
     }
 
-    final shown = await loader.showCachedAdWithResult(
-      placement,
-      onUserEarnedReward: onUserEarnedReward,
-    );
-    if (shown.shown) {
-      _recordShownAd(placement, cachedEntry.info);
-      _log(
-        'show-success',
+    _showingAdPlacements.add(placement);
+    try {
+      final shown = await loader.showCachedAdWithResult(
         placement,
-        cachedEntry.info,
-        extra: 'adType=${cachedEntry.info.adType}',
+        onUserEarnedReward: onUserEarnedReward,
       );
-    } else {
-      _log(
-        'show-failed',
-        placement,
-        cachedEntry.info,
-        extra:
-            'adType=${cachedEntry.info.adType} '
-            'reason=${shown.failureReason ?? 'unknown'}',
-      );
+      if (shown.shown) {
+        _recordShownAd(placement, cachedEntry.info);
+        _log(
+          'show-success',
+          placement,
+          cachedEntry.info,
+          extra: 'adType=${cachedEntry.info.adType}',
+        );
+      } else {
+        _log(
+          'show-failed',
+          placement,
+          cachedEntry.info,
+          extra:
+              'adType=${cachedEntry.info.adType} '
+              'reason=${shown.failureReason ?? 'unknown'}',
+        );
+      }
+      return shown.shown;
+    } finally {
+      _showingAdPlacements.remove(placement);
     }
-    return shown.shown;
   }
 
   Future<void> _handleAdPaidEvent(
