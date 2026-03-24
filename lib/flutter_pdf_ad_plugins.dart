@@ -499,7 +499,25 @@ class FlutterPdfAdPlugins {
   Future<Widget?> buildCachedAdWidget<K>(K placement) async {
     final loader = _ensureLoader<K>();
     await _syncLoaderConfigs(loader);
-    return loader.buildCachedAdWidget(placement as Object);
+    final boxedPlacement = placement as Object;
+    final cachedEntry = await loader.getCachedEntry(boxedPlacement);
+    if (cachedEntry == null) {
+      return null;
+    }
+    final blockedByShield = await _isBlockedByShield(
+      boxedPlacement,
+      cachedEntry.info,
+    );
+    if (blockedByShield) {
+      _log(
+        'build-native-blocked',
+        boxedPlacement,
+        cachedEntry.info,
+        extra: 'reason=shield-blocked',
+      );
+      return null;
+    }
+    return loader.buildCachedAdWidget(boxedPlacement);
   }
 
   Future<bool> showCachedAd<K>(
