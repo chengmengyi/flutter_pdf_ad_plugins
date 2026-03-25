@@ -127,6 +127,8 @@ class FlutterPdfAdPlugins {
 
   int _productCooldownSeconds = 30;
   int _inventoryCooldownSeconds = 30;
+  double _debugMinRevenue = 0.008;
+  double _debugMaxRevenue = 0.02;
 
   FlutterPdfAdLoader<Object>? _adLoader;
   final Map<Object, List<AdInfoBean>> _defaultConfigs =
@@ -182,6 +184,25 @@ class FlutterPdfAdPlugins {
 
   void updateInventoryCooldownSeconds(int seconds) {
     _inventoryCooldownSeconds = seconds < 0 ? 0 : seconds;
+  }
+
+  void updateDebugPaidRevenueRange({
+    required double minRevenue,
+    required double maxRevenue,
+  }) {
+    final double normalizedMinRevenue = minRevenue < 0 ? 0.0 : minRevenue;
+    final normalizedMaxRevenue = maxRevenue < normalizedMinRevenue
+        ? normalizedMinRevenue
+        : maxRevenue;
+    _debugMinRevenue = normalizedMinRevenue;
+    _debugMaxRevenue = normalizedMaxRevenue;
+    if (kReleaseMode) {
+      return;
+    }
+    debugPrint(
+      '[FlutterPdfAdPlugins] update-debug-paid-revenue-range '
+      'minRevenue=$_debugMinRevenue maxRevenue=$_debugMaxRevenue',
+    );
   }
 
   void updateInterstitialLikeNativePlacements<K>(Iterable<K> placements) {
@@ -1063,12 +1084,10 @@ class FlutterPdfAdPlugins {
     if (!kDebugMode || valueMicros > 0) {
       return valueMicros;
     }
-
-    const minRevenue = 0.008;
-    const maxRevenue = 0.08;
     final mockedRevenue =
-        minRevenue +
-        _debugRevenueRandom.nextDouble() * (maxRevenue - minRevenue);
+        _debugMinRevenue +
+        _debugRevenueRandom.nextDouble() *
+            (_debugMaxRevenue - _debugMinRevenue);
     final mockedValueMicros = mockedRevenue * 1000000;
     _logGeneral(
       'paid-event-debug-mock '
