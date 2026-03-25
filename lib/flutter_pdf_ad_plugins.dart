@@ -374,32 +374,24 @@ class FlutterPdfAdPlugins {
       );
     }
 
-    final requestParameters = params ?? ConsentRequestParameters();
-    final requestError = await _requestConsentInfoUpdate(requestParameters);
-    FormError? formError = requestError;
-
-    if (requestError == null && loadAndShowFormIfRequired) {
-      formError = await _loadAndShowConsentFormIfRequired();
+    final consentStatus =  await ConsentInformation.instance.getConsentStatus();
+    print("kk===consentStatus=${consentStatus}");
+    if(consentStatus==ConsentStatus.required||consentStatus==ConsentStatus.unknown){
+      final requestParameters = params ?? ConsentRequestParameters();
+      final requestError = await _requestConsentInfoUpdate(requestParameters);
+      print("kk===requestError=${requestError}===${loadAndShowFormIfRequired}");
+      if (requestError == null && loadAndShowFormIfRequired) {
+        await _loadAndShowConsentFormIfRequired();
+      }
     }
 
-    final consentStatus = fetchStatusSnapshot
-        ? await ConsentInformation.instance.getConsentStatus()
-        : requestError == null && formError == null
-        ? ConsentStatus.obtained
-        : ConsentStatus.unknown;
-    final canRequestAds = fetchStatusSnapshot
-        ? await ConsentInformation.instance.canRequestAds()
-        : requestError == null && formError == null;
-    final privacyStatus = fetchStatusSnapshot
-        ? await ConsentInformation.instance.getPrivacyOptionsRequirementStatus()
-        : PrivacyOptionsRequirementStatus.unknown;
+    final canRequestAds = await ConsentInformation.instance.canRequestAds();
 
     _logUmp(
       'handled',
       extra:
           'countryCode=$countryCode canRequestAds=$canRequestAds '
-          'consentStatus=$consentStatus privacyStatus=$privacyStatus '
-          'formError=${formError?.message ?? 'null'}',
+          'consentStatus=$consentStatus ',
     );
 
     return UmpConsentResult(
@@ -407,8 +399,8 @@ class FlutterPdfAdPlugins {
       requiresCmpByLocale: true,
       canRequestAds: canRequestAds,
       consentStatus: consentStatus,
-      privacyOptionsRequirementStatus: privacyStatus,
-      formError: formError,
+      privacyOptionsRequirementStatus: PrivacyOptionsRequirementStatus.unknown,
+      formError: null,
     );
   }
 
