@@ -409,6 +409,26 @@ class FlutterPdfAdPlugins {
     return ConsentInformation.instance.getPrivacyOptionsRequirementStatus();
   }
 
+  Future<String?> openAdInspector() async {
+    final completer = Completer<String?>();
+    MobileAds.instance.openAdInspector((error) {
+      if (!completer.isCompleted) {
+        completer.complete(
+          error == null
+              ? null
+              : 'code=${error.code} domain=${error.domain} message=${error.message}',
+        );
+      }
+    });
+    final error = await completer.future;
+    if (error == null) {
+      _logGeneral('open-ad-inspector-success');
+    } else {
+      _logGeneral('open-ad-inspector-failed $error');
+    }
+    return error;
+  }
+
   Future<FormError?> showPrivacyOptionsForm() {
     return _showPrivacyOptionsForm();
   }
