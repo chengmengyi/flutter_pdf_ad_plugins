@@ -375,18 +375,15 @@ class FlutterPdfAdPlugins {
     }
 
     final consentStatus =  await ConsentInformation.instance.getConsentStatus();
-    print("kk===consentStatus=${consentStatus}");
     if(consentStatus==ConsentStatus.required||consentStatus==ConsentStatus.unknown){
       final requestParameters = params ?? ConsentRequestParameters();
       final requestError = await _requestConsentInfoUpdate(requestParameters);
-      print("kk===requestError=${requestError}===${loadAndShowFormIfRequired}");
       if (requestError == null && loadAndShowFormIfRequired) {
         await _loadAndShowConsentFormIfRequired();
       }
     }
 
     final canRequestAds = await ConsentInformation.instance.canRequestAds();
-
     _logUmp(
       'handled',
       extra:
