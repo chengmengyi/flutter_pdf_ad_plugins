@@ -24,6 +24,8 @@ export 'load/flutter_pdf_ad_loader.dart';
 export 'load/loaded_ad_cache_entry.dart';
 export 'ump/ump_consent_result.dart';
 
+typedef FengKongLogic = bool Function();
+
 abstract class FlutterPdfAdListener {
   const FlutterPdfAdListener();
 
@@ -152,12 +154,18 @@ class FlutterPdfAdPlugins {
     door: 0,
     ilve: <String>[],
   );
+  FengKongLogic? _fengKongLogic;
 
-  Future<void> initAdmob({String? adjustAppToken, String? distinctId}) async {
+  Future<void> initAdmob({
+    required String adjustAppToken,
+    required String distinctId,
+    required FengKongLogic fengKongLogic,
+  }) async {
+    _fengKongLogic = fengKongLogic;
     await MobileAds.instance.initialize();
     unawaited(AdReferrerManager.instance.getReferrer());
     unawaited(AdUserGroupManager.instance.getUserGroup());
-    final normalizedAdjustAppToken = (adjustAppToken ?? '').trim();
+    final normalizedAdjustAppToken = adjustAppToken.trim();
     if (normalizedAdjustAppToken.isNotEmpty) {
       unawaited(
         AdAdjustManager.instance.initialize(
@@ -374,8 +382,9 @@ class FlutterPdfAdPlugins {
       );
     }
 
-    final consentStatus =  await ConsentInformation.instance.getConsentStatus();
-    if(consentStatus==ConsentStatus.required||consentStatus==ConsentStatus.unknown){
+    final consentStatus = await ConsentInformation.instance.getConsentStatus();
+    if (consentStatus == ConsentStatus.required ||
+        consentStatus == ConsentStatus.unknown) {
       final requestParameters = params ?? ConsentRequestParameters();
       final requestError = await _requestConsentInfoUpdate(requestParameters);
       if (requestError == null && loadAndShowFormIfRequired) {
@@ -508,12 +517,16 @@ class FlutterPdfAdPlugins {
     bool force = false,
     String Function(K placement)? placementLabelBuilder,
   }) {
+    final boxedPlacement = placement as Object;
+    if (_isFengKongBlocked('load', boxedPlacement)) {
+      return Future<LoadedAdCacheEntry?>.value(null);
+    }
     final loader = _ensureLoader<K>(
       placementLabelBuilder: placementLabelBuilder,
     );
     return _loadPlacementWithAudience(
       loader,
-      placement as Object,
+      boxedPlacement,
       configs: configs,
       force: force,
     );
@@ -539,6 +552,13 @@ class FlutterPdfAdPlugins {
     if (cachedEntry == null) {
       return null;
     }
+    if (_isFengKongBlocked(
+      'build-widget',
+      boxedPlacement,
+      info: cachedEntry.info,
+    )) {
+      return null;
+    }
     final blockedByShield = await _isBlockedByShield(
       boxedPlacement,
       cachedEntry.info,
@@ -560,10 +580,14 @@ class FlutterPdfAdPlugins {
     BuildContext? context,
     OnUserEarnedRewardCallback? onUserEarnedReward,
   }) {
+    final boxedPlacement = placement as Object;
+    if (_isFengKongBlocked('show', boxedPlacement)) {
+      return Future<bool>.value(false);
+    }
     final loader = _ensureLoader<K>();
     return _showCachedAdWithAudience(
       loader,
-      placement as Object,
+      boxedPlacement,
       context: context,
       onUserEarnedReward: onUserEarnedReward,
     );
@@ -574,6 +598,12 @@ class FlutterPdfAdPlugins {
     bool force = false,
     String Function(K placement)? placementLabelBuilder,
   }) async {
+    if (_isFengKongBlocked(
+      'preload',
+      placements == null ? 'all' : placements.toList(growable: false),
+    )) {
+      return;
+    }
     final loader = _ensureLoader<K>(
       placementLabelBuilder: placementLabelBuilder,
     );
@@ -596,6 +626,9 @@ class FlutterPdfAdPlugins {
     required List<AdInfoBean>? configs,
     required bool force,
   }) async {
+    if (_isFengKongBlocked('load', placement)) {
+      return null;
+    }
     await _syncLoaderConfigs(loader);
     final resolvedConfigs = await _resolveConfigsForLoad(placement, configs);
     return loader.loadPlacement(
@@ -634,12 +667,16 @@ class FlutterPdfAdPlugins {
     OnUserEarnedRewardCallback? onUserEarnedReward,
     String Function(K placement)? placementLabelBuilder,
   }) {
+    final boxedPlacement = placement as Object;
+    if (_isFengKongBlocked('load-and-show', boxedPlacement)) {
+      return Future<bool>.value(false);
+    }
     final loader = _ensureLoader<K>(
       placementLabelBuilder: placementLabelBuilder,
     );
     return _loadAndShowPlacement(
       loader,
-      placement as Object,
+      boxedPlacement,
       context: context,
       configs: configs,
       forceReload: forceReload,
@@ -805,6 +842,21 @@ class FlutterPdfAdPlugins {
     debugPrint('[FlutterPdfAdPlugins] $message');
   }
 
+  bool _isFengKongBlocked(String stage, Object placement, {AdInfoBean? info}) {
+    final blocked = checkFengKong();
+    if (!blocked) {
+      return false;
+    }
+    if (info != null) {
+      _log(stage, placement, info, extra: 'reason=fengkong-blocked');
+    } else {
+      _logGeneral(
+        '$stage-blocked placement=$placement reason=fengkong-blocked',
+      );
+    }
+    return true;
+  }
+
   void _handlePlacementLoaded(Object placement, LoadedAdCacheEntry entry) {
     final listeners = _placementLoadedListeners[placement];
     if (listeners == null || listeners.isEmpty) {
@@ -823,6 +875,9 @@ class FlutterPdfAdPlugins {
     required bool forceReload,
     required OnUserEarnedRewardCallback? onUserEarnedReward,
   }) async {
+    if (_isFengKongBlocked('load-and-show', placement)) {
+      return false;
+    }
     if (!forceReload) {
       final shown = await _showPlacement(
         loader,
@@ -874,11 +929,18 @@ class FlutterPdfAdPlugins {
     required BuildContext? context,
     required OnUserEarnedRewardCallback? onUserEarnedReward,
   }) async {
+    if (_isFengKongBlocked('show', placement)) {
+      return false;
+    }
     _logGeneral('show-start placement=$placement');
 
     var cachedEntry = loader.cacheMap[placement];
     if (cachedEntry == null) {
       _logGeneral('show-cache-miss placement=$placement');
+      if (_isFengKongBlocked('load-on-show', placement)) {
+        _logGeneral('show-failed placement=$placement reason=fengkong-blocked');
+        return false;
+      }
       cachedEntry = await loader.loadPlacement(placement);
       if (cachedEntry == null) {
         _logGeneral(
@@ -890,6 +952,14 @@ class FlutterPdfAdPlugins {
 
     if (cachedEntry.isExpired) {
       await loader.clearPlacementCache(placement);
+      if (_isFengKongBlocked(
+        'reload-expired',
+        placement,
+        info: cachedEntry.info,
+      )) {
+        _logGeneral('show-failed placement=$placement reason=fengkong-blocked');
+        return false;
+      }
       unawaited(loader.loadPlacement(placement, force: true));
       _log('show-expired', placement, cachedEntry.info);
       _logGeneral('show-failed placement=$placement reason=cache-expired');
@@ -1361,6 +1431,13 @@ class FlutterPdfAdPlugins {
         ..write(extra);
     }
     debugPrint(buffer.toString());
+  }
+
+  bool checkFengKong() {
+    if (null == _fengKongLogic) {
+      return false;
+    }
+    return _fengKongLogic!();
   }
 }
 
