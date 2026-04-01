@@ -1,3 +1,5 @@
+// ignore_for_file: implementation_imports
+
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
@@ -6,6 +8,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:google_mobile_ads/src/ad_instance_manager.dart'
+    show instanceManager;
 
 import 'bean/ad_info_bean.dart';
 import 'enum/ad_type.dart';
@@ -29,6 +33,7 @@ typedef FengKongLogic = bool Function();
 abstract class FlutterPdfAdListener {
   const FlutterPdfAdListener();
 
+  /// 广告产生收益时回调。
   void onAdPaidEvent(
     Object placement,
     double revenue,
@@ -38,8 +43,10 @@ abstract class FlutterPdfAdListener {
     AdInfoBean info,
   ) {}
 
+  /// 单日收益达到阈值时回调。
   void onTachi25OneDayRevenueEvent(String eventName) {}
 
+  /// 总收益达到阈值时回调。
   void onTachi25TotalRevenueEvent(String eventName) {}
 }
 
@@ -90,6 +97,8 @@ class _CallbackFlutterPdfAdListener extends FlutterPdfAdListener {
 
 class FlutterPdfAdPlugins {
   static final FlutterPdfAdPlugins _adPlugins = FlutterPdfAdPlugins();
+
+  /// 获取插件单例。
   static FlutterPdfAdPlugins get instance => _adPlugins;
   static final Random _debugRevenueRandom = Random();
   static const Set<String> _defaultCmpCountryCodes = <String>{
@@ -139,6 +148,9 @@ class FlutterPdfAdPlugins {
       <Object, List<AdInfoBean>>{};
   final Set<Object> _interstitialLikeNativePlacements = <Object>{};
   final Set<Object> _smallTemplateNativePlacements = <Object>{};
+  final Set<Object> _largeBannerPlacements = <Object>{};
+  final Map<Object, String> _collapsibleBannerDirections = <Object, String>{};
+  final Set<Object> _shieldPlacements = <Object>{};
   final Set<Object> _skipReloadAfterClosePlacements = <Object>{};
   final Map<Object, Set<VoidCallback>> _placementLoadedListeners =
       <Object, Set<VoidCallback>>{};
@@ -156,6 +168,7 @@ class FlutterPdfAdPlugins {
   );
   FengKongLogic? _fengKongLogic;
 
+  /// 初始化 AdMob，并启动归因和用户分组信息拉取。
   Future<void> initAdmob({
     required String adjustAppToken,
     required String distinctId,
@@ -178,22 +191,27 @@ class FlutterPdfAdPlugins {
     }
   }
 
+  /// 获取 Android 设备标识。
   Future<String?> getAndroidId() {
     return AdUserGroupManager.instance.getAndroidId();
   }
 
+  /// 获取当前用户分组。
   Future<int?> getCurrentUserGroup() {
     return AdUserGroupManager.instance.getUserGroup();
   }
 
+  /// 更新不同广告类型之间的展示冷却时间。
   void updateProductCooldownSeconds(int seconds) {
     _productCooldownSeconds = seconds < 0 ? 0 : seconds;
   }
 
+  /// 更新同一广告位素材的展示冷却时间。
   void updateInventoryCooldownSeconds(int seconds) {
     _inventoryCooldownSeconds = seconds < 0 ? 0 : seconds;
   }
 
+  /// 设置调试环境下的收益模拟区间。
   void updateDebugPaidRevenueRange({
     required double minRevenue,
     required double maxRevenue,
@@ -213,24 +231,54 @@ class FlutterPdfAdPlugins {
     );
   }
 
+  /// 标记哪些原生广告位按插屏逻辑处理。
   void updateInterstitialLikeNativePlacements<K>(Iterable<K> placements) {
     _interstitialLikeNativePlacements
       ..clear()
       ..addAll(placements.map((placement) => placement as Object));
   }
 
+  /// 标记哪些原生广告位使用小模板样式。
   void updateSmallTemplateNativePlacements<K>(Iterable<K> placements) {
     _smallTemplateNativePlacements
       ..clear()
       ..addAll(placements.map((placement) => placement as Object));
   }
 
+  /// 标记哪些 Banner 广告位使用大尺寸。
+  void updateLargeBannerPlacements<K>(Iterable<K> placements) {
+    _largeBannerPlacements
+      ..clear()
+      ..addAll(placements.map((placement) => placement as Object));
+  }
+
+  /// 配置可折叠 Banner 的展开方向。
+  void updateCollapsibleBannerPlacements<K>(Map<K, String> placements) {
+    _collapsibleBannerDirections
+      ..clear()
+      ..addAll(
+        placements.map(
+          (placement, direction) =>
+              MapEntry(placement as Object, direction.trim()),
+        ),
+      );
+  }
+
+  /// 标记需要经过屏蔽逻辑判断的广告位。
+  void updateShieldPlacements<K>(Iterable<K> placements) {
+    _shieldPlacements
+      ..clear()
+      ..addAll(placements.map((placement) => placement as Object));
+  }
+
+  /// 监听指定广告位加载完成。
   void addPlacementLoadedListener<K>(K placement, VoidCallback listener) {
     _placementLoadedListeners
         .putIfAbsent(placement as Object, () => <VoidCallback>{})
         .add(listener);
   }
 
+  /// 移除指定广告位的加载监听。
   void removePlacementLoadedListener<K>(K placement, VoidCallback listener) {
     final listeners = _placementLoadedListeners[placement as Object];
     if (listeners == null) {
@@ -242,6 +290,7 @@ class FlutterPdfAdPlugins {
     }
   }
 
+  /// 配置关闭后不自动补加载的广告位。
   void updateSkipReloadAfterClosePlacements<K>(Iterable<K> placements) {
     _skipReloadAfterClosePlacements
       ..clear()
@@ -251,19 +300,23 @@ class FlutterPdfAdPlugins {
     );
   }
 
+  /// 更新收益阈值事件配置。
   void updateTachi25RevenueConfig(Map<String, dynamic>? json) {
     AdRevenueManager.instance.updateDailyThresholdConfig(json);
   }
 
+  /// 设置广告事件监听器。
   void setListener(FlutterPdfAdListener? listener) {
     _listener = listener;
   }
 
+  /// 判断当前是否有广告正在展示。
   bool isShowingAd() {
     return _showingAdPlacements.isNotEmpty;
   }
 
   @Deprecated('Use setListener(FlutterPdfAdListener?) instead.')
+  /// 设置广告收益回调，旧版接口。
   void setOnAdPaidEvent(
     void Function(
       Object placement,
@@ -280,6 +333,7 @@ class FlutterPdfAdPlugins {
   }
 
   @Deprecated('Use setListener(FlutterPdfAdListener?) instead.')
+  /// 设置单日收益事件回调，旧版接口。
   void setOnTachi25OneDayRevenueEvent(
     void Function(String eventName)? callback,
   ) {
@@ -288,6 +342,7 @@ class FlutterPdfAdPlugins {
   }
 
   @Deprecated('Use setListener(FlutterPdfAdListener?) instead.')
+  /// 设置总收益事件回调，旧版接口。
   void setOnTachi25TotalRevenueEvent(
     void Function(String eventName)? callback,
   ) {
@@ -295,6 +350,7 @@ class FlutterPdfAdPlugins {
     _listener = _legacyCallbackListener;
   }
 
+  /// 更新来源屏蔽配置。
   void updateReferrerBlockConfig(Map<String, dynamic> json) {
     _referrerBlockConfig = ReferrerBlockConfig.fromJson(json);
     if (kReleaseMode) {
@@ -306,6 +362,7 @@ class FlutterPdfAdPlugins {
     );
   }
 
+  /// 更新黑名单用户状态。
   void updateBlacklistStatus(bool isBlacklistUser) {
     _isBlacklistUser = isBlacklistUser;
     if (kReleaseMode) {
@@ -316,6 +373,7 @@ class FlutterPdfAdPlugins {
     );
   }
 
+  /// 更新需要走 CMP 的国家列表。
   void updateCmpCountryCodes(Iterable<String> countryCodes) {
     _cmpCountryCodes
       ..clear()
@@ -332,22 +390,26 @@ class FlutterPdfAdPlugins {
     );
   }
 
+  /// 重置为默认的 CMP 国家列表。
   void resetCmpCountryCodes() {
     _cmpCountryCodes
       ..clear()
       ..addAll(_defaultCmpCountryCodes);
   }
 
+  /// 获取当前设备地区码。
   String getCurrentCountryCode() {
     final locale = ui.PlatformDispatcher.instance.locale;
     return (locale.countryCode ?? '').toUpperCase();
   }
 
+  /// 判断当前地区是否需要走 CMP。
   bool shouldUseCmpForCurrentLocale() {
     final countryCode = getCurrentCountryCode();
     return _cmpCountryCodes.contains(countryCode);
   }
 
+  /// 处理 UMP 隐私授权流程。
   Future<UmpConsentResult> handleUmpConsent({
     ConsentRequestParameters? params,
     bool loadAndShowFormIfRequired = true,
@@ -410,14 +472,17 @@ class FlutterPdfAdPlugins {
     );
   }
 
+  /// 判断当前是否可以请求广告。
   Future<bool> canRequestAds() {
     return ConsentInformation.instance.canRequestAds();
   }
 
+  /// 获取隐私选项表单要求状态。
   Future<PrivacyOptionsRequirementStatus> getPrivacyOptionsRequirementStatus() {
     return ConsentInformation.instance.getPrivacyOptionsRequirementStatus();
   }
 
+  /// 打开 Ad Inspector 调试面板。
   Future<String?> openAdInspector() async {
     final completer = Completer<String?>();
     MobileAds.instance.openAdInspector((error) {
@@ -438,10 +503,12 @@ class FlutterPdfAdPlugins {
     return error;
   }
 
+  /// 展示隐私选项表单。
   Future<FormError?> showPrivacyOptionsForm() {
     return _showPrivacyOptionsForm();
   }
 
+  /// 配置广告加载器的通用参数。
   void configureLoader<K>({
     AdRequest? defaultAdRequest,
     AdSize? bannerSize,
@@ -451,6 +518,15 @@ class FlutterPdfAdPlugins {
     _adLoader ??= FlutterPdfAdLoader<Object>(
       defaultAdRequest: defaultAdRequest,
       bannerSize: bannerSize,
+      bannerSizeBuilder: (placement) {
+        if (_largeBannerPlacements.contains(placement)) {
+          return AdSize.largeBanner;
+        }
+        return null;
+      },
+      adRequestBuilder: (placement, request) {
+        return _buildBannerRequest(placement, request);
+      },
       nativeTemplateStyle: nativeTemplateStyle,
       nativeTemplateStyleBuilder: (placement) {
         if (_smallTemplateNativePlacements.contains(placement)) {
@@ -469,6 +545,7 @@ class FlutterPdfAdPlugins {
     );
   }
 
+  /// 批量更新默认广告位配置。
   void updateConfigs<K>(
     Map<K, List<AdInfoBean>> configs, {
     String Function(K placement)? placementLabelBuilder,
@@ -479,6 +556,7 @@ class FlutterPdfAdPlugins {
     _ensureLoader<K>(placementLabelBuilder: placementLabelBuilder);
   }
 
+  /// 更新单个默认广告位配置。
   void updatePlacementConfig<K>(
     K placement,
     List<AdInfoBean> configs, {
@@ -490,6 +568,7 @@ class FlutterPdfAdPlugins {
     _ensureLoader<K>(placementLabelBuilder: placementLabelBuilder);
   }
 
+  /// 批量更新 Facebook 用户的广告位配置。
   void updateFacebookConfigs<K>(
     Map<K, List<AdInfoBean>> configs, {
     String Function(K placement)? placementLabelBuilder,
@@ -500,6 +579,7 @@ class FlutterPdfAdPlugins {
     _ensureLoader<K>(placementLabelBuilder: placementLabelBuilder);
   }
 
+  /// 更新单个 Facebook 用户广告位配置。
   void updateFacebookPlacementConfig<K>(
     K placement,
     List<AdInfoBean> configs, {
@@ -511,6 +591,7 @@ class FlutterPdfAdPlugins {
     _ensureLoader<K>(placementLabelBuilder: placementLabelBuilder);
   }
 
+  /// 加载指定广告位并写入缓存。
   Future<LoadedAdCacheEntry?> loadPlacement<K>(
     K placement, {
     List<AdInfoBean>? configs,
@@ -532,18 +613,21 @@ class FlutterPdfAdPlugins {
     );
   }
 
+  /// 获取指定广告位的缓存条目。
   Future<LoadedAdCacheEntry?> getCachedEntry<K>(K placement) async {
     final loader = _ensureLoader<K>();
     await _syncLoaderConfigs(loader);
     return loader.getCachedEntry(placement as Object);
   }
 
+  /// 获取指定广告位的缓存广告对象。
   Future<Ad?> getCachedAd<K>(K placement) async {
     final loader = _ensureLoader<K>();
     await _syncLoaderConfigs(loader);
     return loader.getCachedAd(placement as Object);
   }
 
+  /// 构建指定广告位的缓存广告组件。
   Future<Widget?> buildCachedAdWidget<K>(K placement) async {
     final loader = _ensureLoader<K>();
     await _syncLoaderConfigs(loader);
@@ -575,6 +659,64 @@ class FlutterPdfAdPlugins {
     return loader.buildCachedAdWidget(boxedPlacement);
   }
 
+  /// 取出一个可直接消费的缓存广告组件。
+  Future<Widget?> takeCachedAdWidget<K>(
+    K placement, {
+    bool loadIfNeeded = true,
+    bool reloadAfterTake = false,
+  }) async {
+    final loader = _ensureLoader<K>();
+    await _syncLoaderConfigs(loader);
+    final boxedPlacement = placement as Object;
+    LoadedAdCacheEntry? cachedEntry = await loader.getCachedEntry(
+      boxedPlacement,
+    );
+    if (cachedEntry == null && loadIfNeeded) {
+      cachedEntry = await _loadPlacementWithAudience(
+        loader,
+        boxedPlacement,
+        configs: null,
+        force: true,
+      );
+    }
+    if (cachedEntry == null) {
+      return null;
+    }
+    if (_isFengKongBlocked(
+      'take-widget',
+      boxedPlacement,
+      info: cachedEntry.info,
+    )) {
+      return null;
+    }
+    final blockedByShield = await _isBlockedByShield(
+      boxedPlacement,
+      cachedEntry.info,
+    );
+    if (blockedByShield) {
+      _log(
+        'take-widget-blocked',
+        boxedPlacement,
+        cachedEntry.info,
+        extra: 'reason=shield-blocked',
+      );
+      return null;
+    }
+    final takenEntry = await loader.takeCachedEntry(
+      boxedPlacement,
+      reloadAfterTake: reloadAfterTake,
+    );
+    if (takenEntry == null) {
+      return null;
+    }
+    if (takenEntry.ad is! AdWithView) {
+      await takenEntry.dispose();
+      return null;
+    }
+    return _ConsumableCachedAdWidget(entry: takenEntry);
+  }
+
+  /// 展示指定广告位的缓存广告。
   Future<bool> showCachedAd<K>(
     K placement, {
     BuildContext? context,
@@ -593,6 +735,7 @@ class FlutterPdfAdPlugins {
     );
   }
 
+  /// 预加载全部或指定广告位。
   Future<void> preloadAll<K>({
     Iterable<K>? placements,
     bool force = false,
@@ -614,6 +757,7 @@ class FlutterPdfAdPlugins {
     );
   }
 
+  /// 清理指定广告位的缓存。
   Future<void> clearPlacementCache<K>(K placement) async {
     final loader = _ensureLoader<K>();
     await _syncLoaderConfigs(loader);
@@ -659,6 +803,7 @@ class FlutterPdfAdPlugins {
     );
   }
 
+  /// 加载后立即展示指定广告位。
   Future<bool> loadAndShow<K>(
     K placement, {
     BuildContext? context,
@@ -684,12 +829,15 @@ class FlutterPdfAdPlugins {
     );
   }
 
+  /// 释放加载器和所有广告缓存。
   Future<void> disposeLoader() async {
     final loader = _adLoader;
     _adLoader = null;
     _lastShownAdRecord = null;
     _interstitialLikeNativePlacements.clear();
     _smallTemplateNativePlacements.clear();
+    _largeBannerPlacements.clear();
+    _collapsibleBannerDirections.clear();
     _placementLoadedListeners.clear();
     _showingPlacements.clear();
     _showingAdPlacements.clear();
@@ -710,6 +858,25 @@ class FlutterPdfAdPlugins {
   ) {
     return configs.map(
       (placement, items) => MapEntry(placement as Object, items),
+    );
+  }
+
+  AdRequest _buildBannerRequest(Object placement, AdRequest defaultRequest) {
+    final direction = _collapsibleBannerDirections[placement];
+    if (direction == null || direction.isEmpty) {
+      return defaultRequest;
+    }
+    return AdRequest(
+      keywords: defaultRequest.keywords,
+      contentUrl: defaultRequest.contentUrl,
+      neighboringContentUrls: defaultRequest.neighboringContentUrls,
+      nonPersonalizedAds: defaultRequest.nonPersonalizedAds,
+      httpTimeoutMillis: defaultRequest.httpTimeoutMillis,
+      extras: <String, String>{
+        ...?defaultRequest.extras,
+        'collapsible': direction,
+      },
+      mediationExtras: defaultRequest.mediationExtras,
     );
   }
 
@@ -1178,6 +1345,10 @@ class FlutterPdfAdPlugins {
   }
 
   Future<bool> _isBlockedByShield(Object placement, AdInfoBean info) async {
+    if (!_shieldPlacements.contains(placement)) {
+      return false;
+    }
+
     if (_isBlacklistUser) {
       _log(
         'show-blacklist-blocked',
@@ -1433,6 +1604,7 @@ class FlutterPdfAdPlugins {
     debugPrint(buffer.toString());
   }
 
+  /// 执行风控拦截判断。
   bool checkFengKong() {
     if (null == _fengKongLogic) {
       return false;
@@ -1540,5 +1712,41 @@ class _NativeDialog extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _ConsumableCachedAdWidget extends StatefulWidget {
+  const _ConsumableCachedAdWidget({required this.entry});
+
+  final LoadedAdCacheEntry entry;
+
+  @override
+  State<_ConsumableCachedAdWidget> createState() =>
+      _ConsumableCachedAdWidgetState();
+}
+
+class _ConsumableCachedAdWidgetState extends State<_ConsumableCachedAdWidget> {
+  @override
+  Widget build(BuildContext context) {
+    final ad = widget.entry.ad;
+    if (ad is! AdWithView) {
+      return const SizedBox.shrink();
+    }
+    if (instanceManager.adIdFor(ad) == null) {
+      debugPrint(
+        '[FlutterPdfAdPlugins] skip-build-consumable-widget '
+        'reason=ad-not-loaded-or-disposed adClass=${ad.runtimeType}',
+      );
+      return const SizedBox.shrink();
+    }
+    return AdWidget(ad: ad);
+  }
+
+  @override
+  void dispose() {
+    // This widget can be removed and re-inserted by scroll recycling or
+    // tab switches. Disposing the underlying ad here makes any cached widget
+    // reference crash on the next mount with "Ad.load" assertions.
+    super.dispose();
   }
 }

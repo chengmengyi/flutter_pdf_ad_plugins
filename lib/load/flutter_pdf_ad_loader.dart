@@ -1,8 +1,12 @@
+// ignore_for_file: implementation_imports
+
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:google_mobile_ads/src/ad_instance_manager.dart'
+    show instanceManager;
 
 import '../bean/ad_info_bean.dart';
 import '../enum/ad_type.dart';
@@ -15,6 +19,9 @@ class FlutterPdfAdLoader<K> {
     Map<K, List<AdInfoBean>> initialConfigs = const {},
     AdRequest? defaultAdRequest,
     AdSize? bannerSize,
+    AdSize? Function(K placement)? bannerSizeBuilder,
+    AdRequest? Function(K placement, AdRequest defaultRequest)?
+    adRequestBuilder,
     NativeTemplateStyle? nativeTemplateStyle,
     NativeTemplateStyle? Function(K placement)? nativeTemplateStyleBuilder,
     void Function(K placement, LoadedAdCacheEntry entry)? onPlacementLoaded,
@@ -30,6 +37,8 @@ class FlutterPdfAdLoader<K> {
     onPaidEvent,
   }) : _defaultAdRequest = defaultAdRequest ?? const AdRequest(),
        _bannerSize = bannerSize ?? AdSize.banner,
+       _bannerSizeBuilder = bannerSizeBuilder,
+       _adRequestBuilder = adRequestBuilder,
        _nativeTemplateStyle =
            nativeTemplateStyle ??
            NativeTemplateStyle(templateType: TemplateType.medium),
@@ -42,6 +51,9 @@ class FlutterPdfAdLoader<K> {
 
   final AdRequest _defaultAdRequest;
   final AdSize _bannerSize;
+  final AdSize? Function(K placement)? _bannerSizeBuilder;
+  final AdRequest? Function(K placement, AdRequest defaultRequest)?
+  _adRequestBuilder;
   final NativeTemplateStyle _nativeTemplateStyle;
   final NativeTemplateStyle? Function(K placement)? _nativeTemplateStyleBuilder;
   final void Function(K placement, LoadedAdCacheEntry entry)?
@@ -148,9 +160,28 @@ class FlutterPdfAdLoader<K> {
     return (await getCachedEntry(placement))?.ad;
   }
 
+  Future<LoadedAdCacheEntry?> takeCachedEntry(
+    K placement, {
+    bool reloadAfterTake = false,
+  }) async {
+    await _evictExpiredCacheIfNeeded(placement, reloadOnExpire: false);
+    final entries = _cacheMap[placement];
+    if (entries == null || entries.isEmpty) {
+      return null;
+    }
+    final entry = entries.removeAt(0);
+    if (entries.isEmpty) {
+      _cacheMap.remove(placement);
+    }
+    if (reloadAfterTake) {
+      unawaited(loadPlacement(placement, force: true));
+    }
+    return entry;
+  }
+
   Future<Widget?> buildCachedAdWidget(K placement) async {
     final ad = await getCachedAd(placement);
-    if (ad is AdWithView) {
+    if (ad is AdWithView && instanceManager.adIdFor(ad) != null) {
       return AdWidget(ad: ad);
     }
     return null;
@@ -462,7 +493,7 @@ class FlutterPdfAdLoader<K> {
     );
     var insertAt = entries.length;
     for (var index = 0; index < entries.length; index++) {
-      if (nextEntry.requestOrder < entries[index].requestOrder) {
+      if (nextEntry.requestOrder <= entries[index].requestOrder) {
         insertAt = index;
         break;
       }
@@ -652,7 +683,7 @@ class FlutterPdfAdLoader<K> {
     }
 
     final ad = BannerAd(
-      size: _bannerSize,
+      size: _bannerSizeBuilder?.call(placement) ?? _bannerSize,
       adUnitId: adId,
       listener: BannerAdListener(
         onAdLoaded: (ad) {
@@ -670,7 +701,9 @@ class FlutterPdfAdLoader<K> {
         },
         onPaidEvent: _buildOnPaidEvent(placement, info),
       ),
-      request: _defaultAdRequest,
+      request:
+          _adRequestBuilder?.call(placement, _defaultAdRequest) ??
+          _defaultAdRequest,
     );
 
     try {
