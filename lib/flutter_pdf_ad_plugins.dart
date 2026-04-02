@@ -565,6 +565,44 @@ class FlutterPdfAdPlugins {
     return loader.getCachedAd(placement as Object);
   }
 
+  /// 获取指定广告位当前可用的缓存广告信息。
+  ///
+  /// 当缓存不存在、已过期，或当前不可用于展示时返回 `null`。
+  Future<AdInfoBean?> getAvailableCachedAdInfo<K>(K placement) async {
+    final boxedPlacement = placement as Object;
+    if (_isFengKongBlocked('check-cache', boxedPlacement)) {
+      return null;
+    }
+    final loader = _ensureLoader<K>();
+    await _syncLoaderConfigs(loader);
+    final cachedEntry = await loader.getCachedEntry(boxedPlacement);
+    if (cachedEntry == null || cachedEntry.isExpired) {
+      return null;
+    }
+    if (_isFengKongBlocked(
+      'check-cache-entry',
+      boxedPlacement,
+      info: cachedEntry.info,
+    )) {
+      return null;
+    }
+    final blockedByShield = await _isBlockedByShield(
+      boxedPlacement,
+      cachedEntry.info,
+    );
+    if (blockedByShield) {
+      return null;
+    }
+    final cooldownResult = _getCooldownBlockReason(
+      boxedPlacement,
+      cachedEntry.info,
+    );
+    if (cooldownResult != null) {
+      return null;
+    }
+    return cachedEntry.info;
+  }
+
   /// 构建指定广告位的缓存广告组件。
   Future<Widget?> buildCachedAdWidget<K>(K placement) async {
     final loader = _ensureLoader<K>();
