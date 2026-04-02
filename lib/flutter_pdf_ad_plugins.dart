@@ -33,6 +33,15 @@ typedef FengKongLogic = bool Function();
 abstract class FlutterPdfAdListener {
   const FlutterPdfAdListener();
 
+  /// AdMob 初始化成功时回调。
+  void onAdmobInitialized() {}
+
+  /// 用户分组解析成功时回调。
+  void onUserGroupResolved(int userGroup) {}
+
+  /// 发起广告请求时回调。
+  void onAdRequestStart(Object placement, AdInfoBean info) {}
+
   /// 广告产生收益时回调。
   void onAdPaidEvent(
     Object placement,
@@ -48,51 +57,6 @@ abstract class FlutterPdfAdListener {
 
   /// 总收益达到阈值时回调。
   void onTachi25TotalRevenueEvent(String eventName) {}
-}
-
-class _CallbackFlutterPdfAdListener extends FlutterPdfAdListener {
-  _CallbackFlutterPdfAdListener();
-
-  void Function(
-    Object placement,
-    double revenue,
-    String currencyCode,
-    String adNetwork,
-    String precisionType,
-    AdInfoBean info,
-  )?
-  onAdPaidEventCallback;
-  void Function(String eventName)? onTachi25OneDayRevenueEventCallback;
-  void Function(String eventName)? onTachi25TotalRevenueEventCallback;
-
-  @override
-  void onAdPaidEvent(
-    Object placement,
-    double revenue,
-    String currencyCode,
-    String adNetwork,
-    String precisionType,
-    AdInfoBean info,
-  ) {
-    onAdPaidEventCallback?.call(
-      placement,
-      revenue,
-      currencyCode,
-      adNetwork,
-      precisionType,
-      info,
-    );
-  }
-
-  @override
-  void onTachi25OneDayRevenueEvent(String eventName) {
-    onTachi25OneDayRevenueEventCallback?.call(eventName);
-  }
-
-  @override
-  void onTachi25TotalRevenueEvent(String eventName) {
-    onTachi25TotalRevenueEventCallback?.call(eventName);
-  }
 }
 
 class FlutterPdfAdPlugins {
@@ -156,10 +120,11 @@ class FlutterPdfAdPlugins {
       <Object, Set<VoidCallback>>{};
   final Set<Object> _showingPlacements = <Object>{};
   final Set<Object> _showingAdPlacements = <Object>{};
+  final Map<Object, String> _userGroupFilterLogCache = <Object, String>{};
+  String? _lastFacebookUserCheckLogSignature;
   _LastShownAdRecord? _lastShownAdRecord;
   FlutterPdfAdListener? _listener;
-  final _CallbackFlutterPdfAdListener _legacyCallbackListener =
-      _CallbackFlutterPdfAdListener();
+  bool _isAdmobInitialized = false;
   bool _isBlacklistUser = false;
   final Set<String> _cmpCountryCodes = <String>{..._defaultCmpCountryCodes};
   ReferrerBlockConfig _referrerBlockConfig = const ReferrerBlockConfig(
@@ -175,9 +140,12 @@ class FlutterPdfAdPlugins {
     required FengKongLogic fengKongLogic,
   }) async {
     _fengKongLogic = fengKongLogic;
-    await MobileAds.instance.initialize();
-    unawaited(AdReferrerManager.instance.getReferrer());
+    AdUserGroupManager.instance.onUserGroupResolved = _notifyUserGroupResolved;
     unawaited(AdUserGroupManager.instance.getUserGroup());
+    await MobileAds.instance.initialize();
+    _isAdmobInitialized = true;
+    _notifyAdmobInitialized();
+    unawaited(AdReferrerManager.instance.getReferrer());
     final normalizedAdjustAppToken = adjustAppToken.trim();
     if (normalizedAdjustAppToken.isNotEmpty) {
       unawaited(
@@ -308,46 +276,15 @@ class FlutterPdfAdPlugins {
   /// 设置广告事件监听器。
   void setListener(FlutterPdfAdListener? listener) {
     _listener = listener;
+    if (listener != null && _isAdmobInitialized) {
+      _logGeneral('listener-replay onAdmobInitialized');
+      listener.onAdmobInitialized();
+    }
   }
 
   /// 判断当前是否有广告正在展示。
   bool isShowingAd() {
     return _showingAdPlacements.isNotEmpty;
-  }
-
-  @Deprecated('Use setListener(FlutterPdfAdListener?) instead.')
-  /// 设置广告收益回调，旧版接口。
-  void setOnAdPaidEvent(
-    void Function(
-      Object placement,
-      double revenue,
-      String currencyCode,
-      String adNetwork,
-      String precisionType,
-      AdInfoBean info,
-    )?
-    callback,
-  ) {
-    _legacyCallbackListener.onAdPaidEventCallback = callback;
-    _listener = _legacyCallbackListener;
-  }
-
-  @Deprecated('Use setListener(FlutterPdfAdListener?) instead.')
-  /// 设置单日收益事件回调，旧版接口。
-  void setOnTachi25OneDayRevenueEvent(
-    void Function(String eventName)? callback,
-  ) {
-    _legacyCallbackListener.onTachi25OneDayRevenueEventCallback = callback;
-    _listener = _legacyCallbackListener;
-  }
-
-  @Deprecated('Use setListener(FlutterPdfAdListener?) instead.')
-  /// 设置总收益事件回调，旧版接口。
-  void setOnTachi25TotalRevenueEvent(
-    void Function(String eventName)? callback,
-  ) {
-    _legacyCallbackListener.onTachi25TotalRevenueEventCallback = callback;
-    _listener = _legacyCallbackListener;
   }
 
   /// 更新来源屏蔽配置。
@@ -535,6 +472,7 @@ class FlutterPdfAdPlugins {
         return null;
       },
       onPlacementLoaded: _handlePlacementLoaded,
+      onAdRequestStart: _handleAdRequestStart,
       onPaidEvent: _handleAdPaidEvent,
       placementLabelBuilder: placementLabelBuilder == null
           ? null
@@ -841,6 +779,7 @@ class FlutterPdfAdPlugins {
     _placementLoadedListeners.clear();
     _showingPlacements.clear();
     _showingAdPlacements.clear();
+    AdUserGroupManager.instance.onUserGroupResolved = null;
     if (loader != null) {
       await loader.dispose();
     }
@@ -953,7 +892,15 @@ class FlutterPdfAdPlugins {
     );
     final isFacebookUser = referrerContainsFacebook || adjustContainsFacebook;
 
-    if (!kReleaseMode) {
+    final logSignature =
+        'isFacebookUser=$isFacebookUser|'
+        'referrerContainsFacebook=$referrerContainsFacebook|'
+        'adjustContainsFacebook=$adjustContainsFacebook|'
+        'referrer=${referrer ?? 'null'}|'
+        'adjust=${AdAdjustManager.instance.summary(attribution)}';
+
+    if (!kReleaseMode && _lastFacebookUserCheckLogSignature != logSignature) {
+      _lastFacebookUserCheckLogSignature = logSignature;
       debugPrint(
         '[FlutterPdfAdPlugins] facebook-user-check '
         'isFacebookUser=$isFacebookUser '
@@ -989,7 +936,13 @@ class FlutterPdfAdPlugins {
         })
         .toList(growable: false);
 
-    if (!kReleaseMode) {
+    final logSignature =
+        'userGroup=${userGroup ?? 'null'}|'
+        'before=${configs.length}|'
+        'after=${filtered.length}';
+
+    if (!kReleaseMode && _userGroupFilterLogCache[placement] != logSignature) {
+      _userGroupFilterLogCache[placement] = logSignature;
       debugPrint(
         '[FlutterPdfAdPlugins] user-group-filter '
         'placement=$placement '
@@ -1032,6 +985,20 @@ class FlutterPdfAdPlugins {
     for (final listener in List<VoidCallback>.from(listeners)) {
       listener();
     }
+  }
+
+  void _notifyAdmobInitialized() {
+    _logGeneral('notify onAdmobInitialized===${null == _listener}');
+    _listener?.onAdmobInitialized();
+  }
+
+  void _notifyUserGroupResolved(int userGroup) {
+    _logGeneral('notify onUserGroupResolved userGroup=$userGroup');
+    _listener?.onUserGroupResolved(userGroup);
+  }
+
+  void _handleAdRequestStart(Object placement, AdInfoBean info) {
+    _listener?.onAdRequestStart(placement, info);
   }
 
   Future<bool> _loadAndShowPlacement(
@@ -1108,17 +1075,12 @@ class FlutterPdfAdPlugins {
         _logGeneral('show-failed placement=$placement reason=fengkong-blocked');
         return false;
       }
-      cachedEntry = await loader.loadPlacement(placement);
-      if (cachedEntry == null) {
-        _logGeneral(
-          'show-failed placement=$placement reason=load-on-show-failed',
-        );
-        return false;
-      }
+      unawaited(loader.loadPlacement(placement));
+      _logGeneral('show-failed placement=$placement reason=no-cached-ad');
+      return false;
     }
 
     if (cachedEntry.isExpired) {
-      await loader.clearPlacementCache(placement);
       if (_isFengKongBlocked(
         'reload-expired',
         placement,
@@ -1127,7 +1089,10 @@ class FlutterPdfAdPlugins {
         _logGeneral('show-failed placement=$placement reason=fengkong-blocked');
         return false;
       }
-      unawaited(loader.loadPlacement(placement, force: true));
+      unawaited(() async {
+        await loader.clearPlacementCache(placement);
+        await loader.loadPlacement(placement, force: true);
+      }());
       _log('show-expired', placement, cachedEntry.info);
       _logGeneral('show-failed placement=$placement reason=cache-expired');
       return false;

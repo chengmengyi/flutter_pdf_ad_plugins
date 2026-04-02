@@ -25,6 +25,7 @@ class FlutterPdfAdLoader<K> {
     NativeTemplateStyle? nativeTemplateStyle,
     NativeTemplateStyle? Function(K placement)? nativeTemplateStyleBuilder,
     void Function(K placement, LoadedAdCacheEntry entry)? onPlacementLoaded,
+    void Function(K placement, AdInfoBean info)? onAdRequestStart,
     String Function(K placement)? placementLabelBuilder,
     void Function(
       K placement,
@@ -44,6 +45,7 @@ class FlutterPdfAdLoader<K> {
            NativeTemplateStyle(templateType: TemplateType.medium),
        _nativeTemplateStyleBuilder = nativeTemplateStyleBuilder,
        _onPlacementLoaded = onPlacementLoaded,
+       _onAdRequestStart = onAdRequestStart,
        _placementLabelBuilder = placementLabelBuilder,
        _onPaidEvent = onPaidEvent {
     updateConfigs(initialConfigs);
@@ -58,6 +60,7 @@ class FlutterPdfAdLoader<K> {
   final NativeTemplateStyle? Function(K placement)? _nativeTemplateStyleBuilder;
   final void Function(K placement, LoadedAdCacheEntry entry)?
   _onPlacementLoaded;
+  final void Function(K placement, AdInfoBean info)? _onAdRequestStart;
   final String Function(K placement)? _placementLabelBuilder;
   final void Function(
     K placement,
@@ -773,6 +776,7 @@ class FlutterPdfAdLoader<K> {
   }
 
   void _logLoadStart(K placement, AdInfoBean info) {
+    _onAdRequestStart?.call(placement, info);
     _log('load-start', placement, info: info);
   }
 

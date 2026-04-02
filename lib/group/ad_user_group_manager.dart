@@ -21,6 +21,7 @@ class AdUserGroupManager {
   Future<int?>? _userGroupTask;
   Future<void>? _storageReadyFuture;
   GetStorage? _storage;
+  void Function(int userGroup)? onUserGroupResolved;
 
   Future<String?> getAndroidId() async {
     final cachedAndroidId = _cachedAndroidId;
@@ -113,8 +114,12 @@ class AdUserGroupManager {
 
     final userGroup = _calculateUserGroup(androidId);
     _cachedUserGroup = userGroup;
+    onUserGroupResolved?.call(userGroup);
     await _writeLocalUserGroup(userGroup);
-    _log('user-group-success androidId=$androidId userGroup=$userGroup');
+    _log(
+      'user-group-success androidId=$androidId userGroup=$userGroup '
+      'listenerMissing=${onUserGroupResolved == null}',
+    );
     return userGroup;
   }
 
