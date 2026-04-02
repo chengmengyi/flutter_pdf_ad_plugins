@@ -1716,9 +1716,11 @@ class _NativeDialog extends StatelessWidget {
 }
 
 class _ConsumableCachedAdWidget extends StatefulWidget {
-  const _ConsumableCachedAdWidget({required this.entry});
+  _ConsumableCachedAdWidget({required this.entry})
+    : handle = _ConsumableAdHandle(entry);
 
   final LoadedAdCacheEntry entry;
+  final _ConsumableAdHandle handle;
 
   @override
   State<_ConsumableCachedAdWidget> createState() =>
@@ -1726,6 +1728,12 @@ class _ConsumableCachedAdWidget extends StatefulWidget {
 }
 
 class _ConsumableCachedAdWidgetState extends State<_ConsumableCachedAdWidget> {
+  @override
+  void initState() {
+    super.initState();
+    widget.handle.attach();
+  }
+
   @override
   Widget build(BuildContext context) {
     final ad = widget.entry.ad;
@@ -1744,9 +1752,49 @@ class _ConsumableCachedAdWidgetState extends State<_ConsumableCachedAdWidget> {
 
   @override
   void dispose() {
-    // This widget can be removed and re-inserted by scroll recycling or
-    // tab switches. Disposing the underlying ad here makes any cached widget
-    // reference crash on the next mount with "Ad.load" assertions.
+    // Delay disposal a bit so list recycling / tab switches can reattach the
+    // same widget without crashing, while still releasing stale ads.
+    widget.handle.detach();
     super.dispose();
+  }
+}
+
+class _ConsumableAdHandle {
+  _ConsumableAdHandle(this.entry);
+
+  static const Duration _disposeDelay = Duration(seconds: 2);
+
+  final LoadedAdCacheEntry entry;
+  int _attachCount = 0;
+  Timer? _disposeTimer;
+  bool _disposed = false;
+
+  void attach() {
+    if (_disposed) {
+      return;
+    }
+    _attachCount++;
+    _disposeTimer?.cancel();
+    _disposeTimer = null;
+  }
+
+  void detach() {
+    if (_disposed) {
+      return;
+    }
+    _attachCount--;
+    if (_attachCount > 0) {
+      return;
+    }
+    _attachCount = 0;
+    _disposeTimer?.cancel();
+    _disposeTimer = Timer(_disposeDelay, () async {
+      if (_disposed || _attachCount > 0) {
+        return;
+      }
+      _disposed = true;
+      _disposeTimer = null;
+      await entry.dispose();
+    });
   }
 }
