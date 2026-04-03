@@ -80,6 +80,7 @@ class FlutterPdfAdLoader<K> {
   final Map<K, Future<LoadedAdCacheEntry?>> _loadingTasks = {};
   final Map<K, int> _activeRequestCounts = {};
   final Set<K> _skipReloadAfterClosePlacements = <K>{};
+  final Set<K> _singleFillPlacements = <K>{};
 
   Map<K, List<AdInfoBean>> get configs => Map.unmodifiable(_configs);
 
@@ -105,6 +106,12 @@ class FlutterPdfAdLoader<K> {
 
   void updateSkipReloadAfterClosePlacements(Iterable<K> placements) {
     _skipReloadAfterClosePlacements
+      ..clear()
+      ..addAll(placements);
+  }
+
+  void updateSingleFillPlacements(Iterable<K> placements) {
+    _singleFillPlacements
       ..clear()
       ..addAll(placements);
   }
@@ -401,6 +408,7 @@ class FlutterPdfAdLoader<K> {
     final startedIndexes = <int>{};
     final completedIndexes = <int>{};
     final timers = <Timer>[];
+    var hasSuccessfulFill = false;
 
     bool allDone() =>
         completedIndexes.length == sortedConfigs.length &&
@@ -468,6 +476,18 @@ class FlutterPdfAdLoader<K> {
         cachedAt: DateTime.now(),
         requestOrder: index,
       );
+      if (_singleFillPlacements.contains(placement) && hasSuccessfulFill) {
+        _log(
+          'drop-extra-success',
+          placement,
+          info: config,
+          extra: 'reason=single-fill',
+        );
+        await entry.dispose();
+        await tryCompleteNoFill();
+        return;
+      }
+      hasSuccessfulFill = true;
       await _insertCacheEntry(placement, entry);
       _logLoadSuccess(
         placement,
@@ -755,9 +775,9 @@ class FlutterPdfAdLoader<K> {
         onPaidEvent: _buildOnPaidEvent(placement, info),
       ),
       request: _defaultAdRequest,
-      nativeTemplateStyle:
-          _nativeAdFactoryIdBuilder?.call(placement) == null
-          ? (_nativeTemplateStyleBuilder?.call(placement) ?? _nativeTemplateStyle)
+      nativeTemplateStyle: _nativeAdFactoryIdBuilder?.call(placement) == null
+          ? (_nativeTemplateStyleBuilder?.call(placement) ??
+                _nativeTemplateStyle)
           : null,
     );
 

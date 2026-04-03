@@ -116,6 +116,7 @@ class FlutterPdfAdPlugins {
   final Map<Object, String> _collapsibleBannerDirections = <Object, String>{};
   final Set<Object> _shieldPlacements = <Object>{};
   final Set<Object> _skipReloadAfterClosePlacements = <Object>{};
+  final Set<Object> _singleFillPlacements = <Object>{};
   final Map<Object, Set<VoidCallback>> _placementLoadedListeners =
       <Object, Set<VoidCallback>>{};
   final Set<Object> _showingPlacements = <Object>{};
@@ -272,6 +273,14 @@ class FlutterPdfAdPlugins {
     _adLoader?.updateSkipReloadAfterClosePlacements(
       _skipReloadAfterClosePlacements,
     );
+  }
+
+  /// 配置首个成功后不再接收后续成功结果的广告位。
+  void updateSingleFillPlacements<K>(Iterable<K> placements) {
+    _singleFillPlacements
+      ..clear()
+      ..addAll(placements.map((placement) => placement as Object));
+    _adLoader?.updateSingleFillPlacements(_singleFillPlacements);
   }
 
   /// 更新收益阈值事件配置。
@@ -494,6 +503,7 @@ class FlutterPdfAdPlugins {
     _adLoader?.updateSkipReloadAfterClosePlacements(
       _skipReloadAfterClosePlacements,
     );
+    _adLoader?.updateSingleFillPlacements(_singleFillPlacements);
   }
 
   String? _normalizeLayoutName(String? layoutName) {
@@ -622,6 +632,37 @@ class FlutterPdfAdPlugins {
       return null;
     }
     return cachedEntry.info;
+  }
+
+  /// 判断指定广告位当前是否满足展示条件。
+  ///
+  /// 仅判断配置、风控、屏蔽和冷却，不要求当前已有缓存。
+  Future<bool> canDisplayPlacement<K>(K placement) async {
+    final boxedPlacement = placement as Object;
+    if (_isFengKongBlocked('check-display', boxedPlacement)) {
+      return false;
+    }
+    final loader = _ensureLoader<K>();
+    await _syncLoaderConfigs(loader);
+    final cachedEntry = await loader.getCachedEntry(boxedPlacement);
+    final info =
+        cachedEntry?.info ??
+        _pickPreferredAdInfo(await _resolveConfigsForPlacement(boxedPlacement));
+    if (info == null) {
+      return false;
+    }
+    if (_isFengKongBlocked('check-display-entry', boxedPlacement, info: info)) {
+      return false;
+    }
+    final blockedByShield = await _isBlockedByShield(boxedPlacement, info);
+    if (blockedByShield) {
+      return false;
+    }
+    final cooldownResult = _getCooldownBlockReason(boxedPlacement, info);
+    if (cooldownResult != null) {
+      return false;
+    }
+    return true;
   }
 
   /// 构建指定广告位的缓存广告组件。
@@ -838,6 +879,7 @@ class FlutterPdfAdPlugins {
     _placementLoadedListeners.clear();
     _showingPlacements.clear();
     _showingAdPlacements.clear();
+    _singleFillPlacements.clear();
     AdUserGroupManager.instance.onUserGroupResolved = null;
     if (loader != null) {
       await loader.dispose();
@@ -940,6 +982,23 @@ class FlutterPdfAdPlugins {
     }
     final userGroup = await AdUserGroupManager.instance.getUserGroup();
     return _filterConfigsByUserGroup(placement, configs, userGroup: userGroup);
+  }
+
+  AdInfoBean? _pickPreferredAdInfo(List<AdInfoBean>? configs) {
+    if (configs == null || configs.isEmpty) {
+      return null;
+    }
+    final sorted =
+        configs
+            .where(
+              (config) => config.adId != null && config.parsedAdType != null,
+            )
+            .toList(growable: false)
+          ..sort((left, right) => (right.sort ?? 0).compareTo(left.sort ?? 0));
+    if (sorted.isEmpty) {
+      return null;
+    }
+    return sorted.first;
   }
 
   Future<bool> _isFacebookUser() async {
