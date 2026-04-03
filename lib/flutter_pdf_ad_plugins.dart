@@ -4,7 +4,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 import 'dart:ui' as ui;
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
@@ -13,6 +12,7 @@ import 'package:google_mobile_ads/src/ad_instance_manager.dart'
 
 import 'bean/ad_info_bean.dart';
 import 'enum/ad_type.dart';
+import 'flutter_pdf_ad_plugins_platform_interface.dart';
 import 'group/ad_user_group_manager.dart';
 import 'load/flutter_pdf_ad_loader.dart';
 import 'load/loaded_ad_cache_entry.dart';
@@ -132,14 +132,20 @@ class FlutterPdfAdPlugins {
     ilve: <String>[],
   );
   FengKongLogic? _fengKongLogic;
+  String? _smallNativeAdLayoutName;
 
   /// 初始化 AdMob，并启动归因和用户分组信息拉取。
   Future<void> initAdmob({
     required String adjustAppToken,
     required String distinctId,
     required FengKongLogic fengKongLogic,
+    String? smallNativeAdLayoutName,
   }) async {
     _fengKongLogic = fengKongLogic;
+    _smallNativeAdLayoutName = _normalizeLayoutName(smallNativeAdLayoutName);
+    await FlutterPdfAdPluginsPlatform.instance.configureSmallNativeAdLayout(
+      _smallNativeAdLayoutName,
+    );
     AdUserGroupManager.instance.onUserGroupResolved = _notifyUserGroupResolved;
     unawaited(AdUserGroupManager.instance.getUserGroup());
     await MobileAds.instance.initialize();
@@ -464,6 +470,13 @@ class FlutterPdfAdPlugins {
       adRequestBuilder: (placement, request) {
         return _buildBannerRequest(placement, request);
       },
+      nativeAdFactoryIdBuilder: (placement) {
+        if (_smallNativeAdLayoutName != null &&
+            _smallTemplateNativePlacements.contains(placement)) {
+          return 'guide_compact_native';
+        }
+        return null;
+      },
       nativeTemplateStyle: nativeTemplateStyle,
       nativeTemplateStyleBuilder: (placement) {
         if (_smallTemplateNativePlacements.contains(placement)) {
@@ -481,6 +494,14 @@ class FlutterPdfAdPlugins {
     _adLoader?.updateSkipReloadAfterClosePlacements(
       _skipReloadAfterClosePlacements,
     );
+  }
+
+  String? _normalizeLayoutName(String? layoutName) {
+    final value = layoutName?.trim();
+    if (value == null || value.isEmpty) {
+      return null;
+    }
+    return value;
   }
 
   /// 批量更新默认广告位配置。

@@ -22,6 +22,7 @@ class FlutterPdfAdLoader<K> {
     AdSize? Function(K placement)? bannerSizeBuilder,
     AdRequest? Function(K placement, AdRequest defaultRequest)?
     adRequestBuilder,
+    String? Function(K placement)? nativeAdFactoryIdBuilder,
     NativeTemplateStyle? nativeTemplateStyle,
     NativeTemplateStyle? Function(K placement)? nativeTemplateStyleBuilder,
     void Function(K placement, LoadedAdCacheEntry entry)? onPlacementLoaded,
@@ -40,6 +41,7 @@ class FlutterPdfAdLoader<K> {
        _bannerSize = bannerSize ?? AdSize.banner,
        _bannerSizeBuilder = bannerSizeBuilder,
        _adRequestBuilder = adRequestBuilder,
+       _nativeAdFactoryIdBuilder = nativeAdFactoryIdBuilder,
        _nativeTemplateStyle =
            nativeTemplateStyle ??
            NativeTemplateStyle(templateType: TemplateType.medium),
@@ -56,6 +58,7 @@ class FlutterPdfAdLoader<K> {
   final AdSize? Function(K placement)? _bannerSizeBuilder;
   final AdRequest? Function(K placement, AdRequest defaultRequest)?
   _adRequestBuilder;
+  final String? Function(K placement)? _nativeAdFactoryIdBuilder;
   final NativeTemplateStyle _nativeTemplateStyle;
   final NativeTemplateStyle? Function(K placement)? _nativeTemplateStyleBuilder;
   final void Function(K placement, LoadedAdCacheEntry entry)?
@@ -734,6 +737,7 @@ class FlutterPdfAdLoader<K> {
 
     final ad = NativeAd(
       adUnitId: adId,
+      factoryId: _nativeAdFactoryIdBuilder?.call(placement),
       listener: NativeAdListener(
         onAdLoaded: (ad) {
           if (completer.isCompleted) {
@@ -752,7 +756,9 @@ class FlutterPdfAdLoader<K> {
       ),
       request: _defaultAdRequest,
       nativeTemplateStyle:
-          _nativeTemplateStyleBuilder?.call(placement) ?? _nativeTemplateStyle,
+          _nativeAdFactoryIdBuilder?.call(placement) == null
+          ? (_nativeTemplateStyleBuilder?.call(placement) ?? _nativeTemplateStyle)
+          : null,
     );
 
     try {

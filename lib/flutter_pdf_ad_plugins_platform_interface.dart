@@ -31,4 +31,10 @@ abstract class FlutterPdfAdPluginsPlatform extends PlatformInterface {
   Future<String?> getAndroidId() {
     throw UnimplementedError('getAndroidId() has not been implemented.');
   }
+
+  Future<void> configureSmallNativeAdLayout(String? layoutName) {
+    throw UnimplementedError(
+      'configureSmallNativeAdLayout() has not been implemented.',
+    );
+  }
 }

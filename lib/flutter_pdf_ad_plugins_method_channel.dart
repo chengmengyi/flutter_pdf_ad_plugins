@@ -21,4 +21,11 @@ class MethodChannelFlutterPdfAdPlugins extends FlutterPdfAdPluginsPlatform {
   Future<String?> getAndroidId() async {
     return methodChannel.invokeMethod<String>('getAndroidId');
   }
+
+  @override
+  Future<void> configureSmallNativeAdLayout(String? layoutName) async {
+    await methodChannel.invokeMethod<void>('configureSmallNativeAdLayout', {
+      'layoutName': layoutName,
+    });
+  }
 }
