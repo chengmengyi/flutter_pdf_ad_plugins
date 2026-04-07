@@ -617,7 +617,7 @@ class FlutterPdfAdPlugins {
     )) {
       return null;
     }
-    final blockedByShield = await _isBlockedByShield(
+    final blockedByShield = await isBlockedByShield(
       boxedPlacement,
       cachedEntry.info,
     );
@@ -654,7 +654,7 @@ class FlutterPdfAdPlugins {
     if (_isFengKongBlocked('check-display-entry', boxedPlacement, info: info)) {
       return false;
     }
-    final blockedByShield = await _isBlockedByShield(boxedPlacement, info);
+    final blockedByShield = await isBlockedByShield(boxedPlacement, info);
     if (blockedByShield) {
       return false;
     }
@@ -681,7 +681,7 @@ class FlutterPdfAdPlugins {
     )) {
       return null;
     }
-    final blockedByShield = await _isBlockedByShield(
+    final blockedByShield = await isBlockedByShield(
       boxedPlacement,
       cachedEntry.info,
     );
@@ -727,7 +727,7 @@ class FlutterPdfAdPlugins {
     )) {
       return null;
     }
-    final blockedByShield = await _isBlockedByShield(
+    final blockedByShield = await isBlockedByShield(
       boxedPlacement,
       cachedEntry.info,
     );
@@ -1216,7 +1216,7 @@ class FlutterPdfAdPlugins {
       return false;
     }
 
-    final blockedByShield = await _isBlockedByShield(
+    final blockedByShield = await isBlockedByShield(
       placement,
       cachedEntry.info,
     );
@@ -1427,7 +1427,7 @@ class FlutterPdfAdPlugins {
     return mockedValueMicros;
   }
 
-  Future<bool> _isBlockedByShield(Object placement, AdInfoBean info) async {
+  Future<bool> isBlockedByShield(Object placement, AdInfoBean? info) async {
     if (!_shieldPlacements.contains(placement)) {
       return false;
     }
@@ -1590,7 +1590,7 @@ class FlutterPdfAdPlugins {
     return const _ShowResult.success();
   }
 
-  void _log(String stage, Object placement, AdInfoBean info, {String? extra}) {
+  void _log(String stage, Object placement, AdInfoBean? info, {String? extra}) {
     if (kReleaseMode) {
       return;
     }
@@ -1598,7 +1598,7 @@ class FlutterPdfAdPlugins {
     final buffer = StringBuffer()
       ..write('[FlutterPdfAdPlugins] $stage ')
       ..write('placement=$placement ')
-      ..write('adInfo={${info.logSummary}} ')
+      ..write('adInfo={${info?.logSummary}} ')
       ..write('pr_cd=$_productCooldownSeconds ')
       ..write('kc_cd=$_inventoryCooldownSeconds');
 
