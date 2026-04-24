@@ -441,7 +441,8 @@ class FlutterPdfAdLoader<K> {
       _activeRequestCounts[placement] =
           (_activeRequestCounts[placement] ?? 0) + 1;
 
-      if (index + 1 < sortedConfigs.length) {
+      if (!_singleFillPlacements.contains(placement) &&
+          index + 1 < sortedConfigs.length) {
         final timer = Timer(_requestFallbackDelay, () {
           if (completedIndexes.contains(index)) {
             return;
