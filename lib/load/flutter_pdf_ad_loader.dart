@@ -139,6 +139,11 @@ class FlutterPdfAdLoader<K> {
       if (cachedEntry != null && cachedEntry.isNotEmpty) {
         return cachedEntry.first;
       }
+
+      final latestInFlight = _loadingTasks[placement];
+      if (latestInFlight != null) {
+        return latestInFlight;
+      }
     }
 
     final placementConfigs =
