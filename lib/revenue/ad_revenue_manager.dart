@@ -33,7 +33,7 @@ class AdRevenueManager {
   GetStorage? _storage;
   Map<String, double> _dailyThresholds = <String, double>{};
 
-  bool get isEnabled => _dailyThresholds.isNotEmpty;
+  bool get _hasDailyThresholds => _dailyThresholds.isNotEmpty;
 
   void updateDailyThresholdConfig(Map<String, dynamic>? json) {
     if (json == null || json.isEmpty) {
@@ -55,7 +55,7 @@ class AdRevenueManager {
   }
 
   Future<AdRevenueRecordResult> recordRevenue(double revenue) async {
-    if (!isEnabled || revenue <= 0) {
+    if (revenue <= 0) {
       return const AdRevenueRecordResult(
         revenue: 0,
         dailyRevenue: 0,
@@ -73,7 +73,9 @@ class AdRevenueManager {
     await _storage?.write(_totalRevenueKey, totalRevenue);
 
     final triggeredEvents = <String>[];
-    triggeredEvents.addAll(await _consumeDailyThresholds(dailyRevenue));
+    if (_hasDailyThresholds) {
+      triggeredEvents.addAll(await _consumeDailyThresholds(dailyRevenue));
+    }
     triggeredEvents.addAll(await _consumeTotalThresholds(totalRevenue));
 
     _log(

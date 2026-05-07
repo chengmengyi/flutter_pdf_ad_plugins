@@ -115,6 +115,8 @@ class FlutterPdfAdPlugins {
   final Set<Object> _largeBannerPlacements = <Object>{};
   final Map<Object, String> _collapsibleBannerDirections = <Object, String>{};
   final Set<Object> _shieldPlacements = <Object>{};
+  final Map<Object, Set<Object>> _shieldPlacementTags = <Object, Set<Object>>{};
+  final Map<Object, Object> _placementShieldTagMap = <Object, Object>{};
   final Set<Object> _skipReloadAfterClosePlacements = <Object>{};
   final Set<Object> _singleFillPlacements = <Object>{};
   final Set<Object> _cooldownExcludedPlacements = <Object>{};
@@ -193,8 +195,9 @@ class FlutterPdfAdPlugins {
     required double maxRevenue,
   }) {
     final double normalizedMinRevenue = minRevenue < 0 ? 0.0 : minRevenue;
-    final normalizedMaxRevenue =
-        maxRevenue < normalizedMinRevenue ? normalizedMinRevenue : maxRevenue;
+    final normalizedMaxRevenue = maxRevenue < normalizedMinRevenue
+        ? normalizedMinRevenue
+        : maxRevenue;
     _debugMinRevenue = normalizedMinRevenue;
     _debugMaxRevenue = normalizedMaxRevenue;
     if (kReleaseMode) {
@@ -244,6 +247,35 @@ class FlutterPdfAdPlugins {
     _shieldPlacements
       ..clear()
       ..addAll(placements.map((placement) => placement as Object));
+  }
+
+  /// 标记需要按广告位标签经过屏蔽逻辑判断的广告位。
+  void updateShieldPlacementTags<K, T>(Map<K, Iterable<T>> placements) {
+    _shieldPlacementTags
+      ..clear()
+      ..addAll(
+        placements.map(
+          (placement, tags) => MapEntry(
+            placement as Object,
+            tags.map((tag) => tag as Object).toSet(),
+          ),
+        ),
+      );
+  }
+
+  /// 标记需要按广告位 posid 经过屏蔽逻辑判断的广告位。
+  void updateShieldPlacementPosIds<K, P>(Map<K, Iterable<P>> placements) {
+    updateShieldPlacementTags<K, P>(placements);
+  }
+
+  /// 更新广告位当前标签，用于区分同一个 placement 下不同业务位置。
+  void updatePlacementShieldTag<K, T>(K placement, T? tag) {
+    final boxedPlacement = placement as Object;
+    if (tag == null) {
+      _placementShieldTagMap.remove(boxedPlacement);
+      return;
+    }
+    _placementShieldTagMap[boxedPlacement] = tag as Object;
   }
 
   /// 标记不参与广告冷却的广告位。
@@ -386,11 +418,12 @@ class FlutterPdfAdPlugins {
           : true;
       final privacyStatus = fetchStatusSnapshot
           ? await ConsentInformation.instance
-              .getPrivacyOptionsRequirementStatus()
+                .getPrivacyOptionsRequirementStatus()
           : PrivacyOptionsRequirementStatus.notRequired;
       _logUmp(
         'skip-by-locale',
-        extra: 'countryCode=$countryCode canRequestAds=$canRequestAds '
+        extra:
+            'countryCode=$countryCode canRequestAds=$canRequestAds '
             'consentStatus=$consentStatus privacyStatus=$privacyStatus',
       );
       return UmpConsentResult(
@@ -415,7 +448,8 @@ class FlutterPdfAdPlugins {
     final canRequestAds = await ConsentInformation.instance.canRequestAds();
     _logUmp(
       'handled',
-      extra: 'countryCode=$countryCode canRequestAds=$canRequestAds '
+      extra:
+          'countryCode=$countryCode canRequestAds=$canRequestAds '
           'consentStatus=$consentStatus ',
     );
 
@@ -650,7 +684,8 @@ class FlutterPdfAdPlugins {
     final loader = _ensureLoader<K>();
     await _syncLoaderConfigs(loader);
     final cachedEntry = await loader.getCachedEntry(boxedPlacement);
-    final info = cachedEntry?.info ??
+    final info =
+        cachedEntry?.info ??
         _pickPreferredAdInfo(await _resolveConfigsForPlacement(boxedPlacement));
     if (info == null) {
       return false;
@@ -796,7 +831,7 @@ class FlutterPdfAdPlugins {
     final activeConfigs = await _resolveActiveConfigs();
     final targetPlacements =
         placements?.map((placement) => placement as Object).toList() ??
-            activeConfigs.keys.toList(growable: false);
+        activeConfigs.keys.toList(growable: false);
     final allowedPlacements = <Object>[];
     for (final placement in targetPlacements) {
       final canRequest = await _canRequestPlacement(
@@ -877,7 +912,8 @@ class FlutterPdfAdPlugins {
         '$action-cooldown-blocked',
         placement,
         info,
-        extra: 'cooldownType=${cooldownResult.cooldownType} '
+        extra:
+            'cooldownType=${cooldownResult.cooldownType} '
             'remainingSeconds=${cooldownResult.remainingSeconds}',
       );
       _logGeneral(
@@ -1010,8 +1046,8 @@ class FlutterPdfAdPlugins {
     for (final key in keys) {
       final selected =
           isFacebookUser && (_facebookConfigs[key]?.isNotEmpty ?? false)
-              ? _facebookConfigs[key]
-              : _defaultConfigs[key];
+          ? _facebookConfigs[key]
+          : _defaultConfigs[key];
       if (selected != null) {
         final filtered = _filterConfigsByUserGroup(
           key,
@@ -1034,8 +1070,8 @@ class FlutterPdfAdPlugins {
     final userGroup = await AdUserGroupManager.instance.getUserGroup();
     final selected =
         isFacebookUser && (_facebookConfigs[placement]?.isNotEmpty ?? false)
-            ? _facebookConfigs[placement]
-            : _defaultConfigs[placement];
+        ? _facebookConfigs[placement]
+        : _defaultConfigs[placement];
     if (selected == null) {
       return null;
     }
@@ -1057,12 +1093,13 @@ class FlutterPdfAdPlugins {
     if (configs == null || configs.isEmpty) {
       return null;
     }
-    final sorted = configs
-        .where(
-          (config) => config.adId != null && config.parsedAdType != null,
-        )
-        .toList(growable: false)
-      ..sort((left, right) => (right.sort ?? 0).compareTo(left.sort ?? 0));
+    final sorted =
+        configs
+            .where(
+              (config) => config.adId != null && config.parsedAdType != null,
+            )
+            .toList(growable: false)
+          ..sort((left, right) => (right.sort ?? 0).compareTo(left.sort ?? 0));
     if (sorted.isEmpty) {
       return null;
     }
@@ -1078,7 +1115,8 @@ class FlutterPdfAdPlugins {
     );
     final isFacebookUser = referrerContainsFacebook || adjustContainsFacebook;
 
-    final logSignature = 'isFacebookUser=$isFacebookUser|'
+    final logSignature =
+        'isFacebookUser=$isFacebookUser|'
         'referrerContainsFacebook=$referrerContainsFacebook|'
         'adjustContainsFacebook=$adjustContainsFacebook|'
         'referrer=${referrer ?? 'null'}|'
@@ -1108,18 +1146,21 @@ class FlutterPdfAdPlugins {
     List<AdInfoBean> configs, {
     required int? userGroup,
   }) {
-    final filtered = configs.where((config) {
-      final groups = config.userGroup ?? const <int>[];
-      if (groups.isEmpty) {
-        return true;
-      }
-      if (userGroup == null) {
-        return false;
-      }
-      return groups.contains(userGroup);
-    }).toList(growable: false);
+    final filtered = configs
+        .where((config) {
+          final groups = config.userGroup ?? const <int>[];
+          if (groups.isEmpty) {
+            return true;
+          }
+          if (userGroup == null) {
+            return false;
+          }
+          return groups.contains(userGroup);
+        })
+        .toList(growable: false);
 
-    final logSignature = 'userGroup=${userGroup ?? 'null'}|'
+    final logSignature =
+        'userGroup=${userGroup ?? 'null'}|'
         'before=${configs.length}|'
         'after=${filtered.length}';
 
@@ -1253,6 +1294,12 @@ class FlutterPdfAdPlugins {
     var cachedEntry = loader.cacheMap[placement];
     if (cachedEntry == null) {
       _logGeneral('show-cache-miss placement=$placement');
+      if (_skipReloadAfterClosePlacements.contains(placement)) {
+        _logGeneral(
+          'show-failed placement=$placement reason=no-cached-ad-skip-reload',
+        );
+        return false;
+      }
       if (_isFengKongBlocked('load-on-show', placement)) {
         _logGeneral('show-failed placement=$placement reason=fengkong-blocked');
         return false;
@@ -1270,6 +1317,14 @@ class FlutterPdfAdPlugins {
     }
 
     if (cachedEntry.isExpired) {
+      if (_skipReloadAfterClosePlacements.contains(placement)) {
+        await loader.clearPlacementCache(placement);
+        _log('show-expired', placement, cachedEntry.info);
+        _logGeneral(
+          'show-failed placement=$placement reason=cache-expired-skip-reload',
+        );
+        return false;
+      }
       if (_isFengKongBlocked(
         'reload-expired',
         placement,
@@ -1307,7 +1362,8 @@ class FlutterPdfAdPlugins {
         'show-cooldown-blocked',
         placement,
         cachedEntry.info,
-        extra: 'cooldownType=${cooldownResult.cooldownType} '
+        extra:
+            'cooldownType=${cooldownResult.cooldownType} '
             'remainingSeconds=${cooldownResult.remainingSeconds}',
       );
       _logGeneral('show-failed placement=$placement reason=cooldown-blocked');
@@ -1369,7 +1425,8 @@ class FlutterPdfAdPlugins {
             'show-failed',
             placement,
             cachedEntry.info,
-            extra: 'adType=native '
+            extra:
+                'adType=native '
                 'reason=${shown.failureReason ?? 'unknown'}',
           );
         }
@@ -1399,7 +1456,8 @@ class FlutterPdfAdPlugins {
           'show-failed',
           placement,
           cachedEntry.info,
-          extra: 'adType=${cachedEntry.info.adType} '
+          extra:
+              'adType=${cachedEntry.info.adType} '
               'reason=${shown.failureReason ?? 'unknown'}',
         );
       }
@@ -1440,7 +1498,8 @@ class FlutterPdfAdPlugins {
       'show-revenue',
       placement,
       info,
-      extra: 'revenue=${revenueResult.revenue} '
+      extra:
+          'revenue=${revenueResult.revenue} '
           'dailyRevenue=${revenueResult.dailyRevenue} '
           'totalRevenue=${revenueResult.totalRevenue} '
           'currencyCode=$currencyCode',
@@ -1485,7 +1544,8 @@ class FlutterPdfAdPlugins {
     if (!kDebugMode || valueMicros > 0) {
       return valueMicros;
     }
-    final mockedRevenue = _debugMinRevenue +
+    final mockedRevenue =
+        _debugMinRevenue +
         _debugRevenueRandom.nextDouble() *
             (_debugMaxRevenue - _debugMinRevenue);
     final mockedValueMicros = mockedRevenue * 1000000;
@@ -1499,7 +1559,12 @@ class FlutterPdfAdPlugins {
   }
 
   Future<bool> isBlockedByShield(Object placement, AdInfoBean? info) async {
-    if (!_shieldPlacements.contains(placement)) {
+    final Object? shieldTag = _placementShieldTagMap[placement];
+    final bool isShieldPlacement = _shieldPlacements.contains(placement);
+    final bool isShieldPlacementTag =
+        shieldTag != null &&
+        (_shieldPlacementTags[placement]?.contains(shieldTag) ?? false);
+    if (!isShieldPlacement && !isShieldPlacementTag) {
       return false;
     }
 
@@ -1508,7 +1573,7 @@ class FlutterPdfAdPlugins {
         'show-blacklist-blocked',
         placement,
         info,
-        extra: 'isBlacklistUser=true',
+        extra: 'isBlacklistUser=true shieldTag=${shieldTag ?? 'null'}',
       );
       return true;
     }
@@ -1526,7 +1591,7 @@ class FlutterPdfAdPlugins {
       'show-referrer-read',
       placement,
       info,
-      extra: 'referrer=${referrer ?? 'null'}',
+      extra: 'referrer=${referrer ?? 'null'} shieldTag=${shieldTag ?? 'null'}',
     );
     final blocked = _referrerBlockConfig.shouldBlock(referrer);
     if (blocked) {
@@ -1534,7 +1599,9 @@ class FlutterPdfAdPlugins {
         'show-referrer-blocked',
         placement,
         info,
-        extra: 'referrer=${referrer ?? 'null'} '
+        extra:
+            'referrer=${referrer ?? 'null'} '
+            'shieldTag=${shieldTag ?? 'null'} '
             'config=${_referrerBlockConfig.logSummary}',
       );
     } else {
@@ -1542,7 +1609,9 @@ class FlutterPdfAdPlugins {
         'show-referrer-allowed',
         placement,
         info,
-        extra: 'referrer=${referrer ?? 'null'} '
+        extra:
+            'referrer=${referrer ?? 'null'} '
+            'shieldTag=${shieldTag ?? 'null'} '
             'config=${_referrerBlockConfig.logSummary}',
       );
     }
@@ -1641,7 +1710,8 @@ class FlutterPdfAdPlugins {
     final interstitialLike = _interstitialLikeNativePlacements.contains(
       placement,
     );
-    final navigator = Navigator.maybeOf(context, rootNavigator: true) ??
+    final navigator =
+        Navigator.maybeOf(context, rootNavigator: true) ??
         Navigator.maybeOf(context);
     if (navigator == null) {
       _log('show-native-missing-navigator', placement, entry.info);
@@ -1802,7 +1872,7 @@ class _ShowResult {
   const _ShowResult.success() : this._(shown: true);
 
   const _ShowResult.failure(String reason)
-      : this._(shown: false, failureReason: reason);
+    : this._(shown: false, failureReason: reason);
 
   final bool shown;
   final String? failureReason;
@@ -1878,7 +1948,7 @@ class _NativeDialog extends StatelessWidget {
 
 class _ConsumableCachedAdWidget extends StatefulWidget {
   _ConsumableCachedAdWidget({required this.entry})
-      : handle = _ConsumableAdHandle(entry);
+    : handle = _ConsumableAdHandle(entry);
 
   final LoadedAdCacheEntry entry;
   final _ConsumableAdHandle handle;
