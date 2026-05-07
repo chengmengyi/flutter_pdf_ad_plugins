@@ -13,6 +13,8 @@ import '../enum/ad_type.dart';
 import 'loaded_ad_cache_entry.dart';
 
 const Duration _requestFallbackDelay = Duration(seconds: 3);
+const Duration _nativeLoadTimeout = Duration(seconds: 20);
+const Duration _failedLoadRetryDelay = Duration(seconds: 3);
 
 class FlutterPdfAdLoader<K> {
   FlutterPdfAdLoader({
@@ -79,8 +81,10 @@ class FlutterPdfAdLoader<K> {
   final Map<K, List<LoadedAdCacheEntry>> _cacheMap = {};
   final Map<K, Future<LoadedAdCacheEntry?>> _loadingTasks = {};
   final Map<K, int> _activeRequestCounts = {};
+  final Map<K, Timer> _retryTimers = {};
   final Set<K> _skipReloadAfterClosePlacements = <K>{};
   final Set<K> _singleFillPlacements = <K>{};
+  bool _disposed = false;
 
   Map<K, List<AdInfoBean>> get configs => Map.unmodifiable(_configs);
 
@@ -121,10 +125,16 @@ class FlutterPdfAdLoader<K> {
     List<AdInfoBean>? configs,
     bool force = false,
   }) async {
+    if (_disposed) {
+      return null;
+    }
+
     final inFlight = _loadingTasks[placement];
     if (inFlight != null) {
       return inFlight;
     }
+
+    _cancelRetry(placement);
 
     if (!force) {
       final cacheExpired = await _evictExpiredCacheIfNeeded(
@@ -150,11 +160,19 @@ class FlutterPdfAdLoader<K> {
         configs ?? _configs[placement] ?? const <AdInfoBean>[];
     final future = _loadPlacementInternal(placement, placementConfigs);
     _loadingTasks[placement] = future;
+    var shouldRetry = false;
 
     try {
-      return await future;
+      final result = await future;
+      shouldRetry = result == null && placementConfigs.isNotEmpty;
+      return result;
     } finally {
-      _loadingTasks.remove(placement);
+      if (identical(_loadingTasks[placement], future)) {
+        _loadingTasks.remove(placement);
+      }
+      if (shouldRetry) {
+        _scheduleRetry(placement);
+      }
     }
   }
 
@@ -367,6 +385,7 @@ class FlutterPdfAdLoader<K> {
   }
 
   Future<void> clearPlacementCache(K placement) async {
+    _cancelRetry(placement);
     final entries = _cacheMap.remove(placement);
     if (entries != null) {
       for (final entry in entries) {
@@ -383,6 +402,11 @@ class FlutterPdfAdLoader<K> {
   }
 
   Future<void> dispose() async {
+    _disposed = true;
+    for (final timer in _retryTimers.values) {
+      timer.cancel();
+    }
+    _retryTimers.clear();
     final placements = _cacheMap.keys.toList(growable: false);
     for (final placement in placements) {
       await clearPlacementCache(placement);
@@ -390,6 +414,27 @@ class FlutterPdfAdLoader<K> {
     _configs.clear();
     _loadingTasks.clear();
     _activeRequestCounts.clear();
+  }
+
+  void _scheduleRetry(K placement) {
+    if (_disposed || (_retryTimers[placement]?.isActive ?? false)) {
+      return;
+    }
+
+    _retryTimers[placement] = Timer(_failedLoadRetryDelay, () {
+      _retryTimers.remove(placement);
+      if (_disposed ||
+          (_cacheMap[placement]?.isNotEmpty ?? false) ||
+          _loadingTasks.containsKey(placement)) {
+        return;
+      }
+      _logCacheReload(placement, trigger: 'failed-load-retry');
+      unawaited(loadPlacement(placement, force: true));
+    });
+  }
+
+  void _cancelRetry(K placement) {
+    _retryTimers.remove(placement)?.cancel();
   }
 
   Future<LoadedAdCacheEntry?> _loadPlacementInternal(
@@ -754,26 +799,40 @@ class FlutterPdfAdLoader<K> {
     String adId,
   ) async {
     final completer = Completer<_AdLoadResult>();
+    Timer? timeoutTimer;
+    var disposed = false;
+
+    Future<void> disposeAd(Ad ad) async {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      await ad.dispose();
+    }
 
     void completeFailure(String reason) {
       if (!completer.isCompleted) {
+        timeoutTimer?.cancel();
         completer.complete(_AdLoadResult.failure(reason));
       }
     }
 
-    final ad = NativeAd(
+    late final NativeAd ad;
+    ad = NativeAd(
       adUnitId: adId,
       factoryId: _nativeAdFactoryIdBuilder?.call(placement),
       listener: NativeAdListener(
         onAdLoaded: (ad) {
+          timeoutTimer?.cancel();
           if (completer.isCompleted) {
-            ad.dispose();
+            unawaited(disposeAd(ad));
             return;
           }
           completer.complete(_AdLoadResult.success(ad));
         },
         onAdFailedToLoad: (ad, error) async {
-          await ad.dispose();
+          timeoutTimer?.cancel();
+          await disposeAd(ad);
           completeFailure(
             'code=${error.code} message=${error.message} domain=${error.domain}',
           );
@@ -786,11 +845,16 @@ class FlutterPdfAdLoader<K> {
                 _nativeTemplateStyle)
           : null,
     );
+    timeoutTimer = Timer(_nativeLoadTimeout, () {
+      unawaited(disposeAd(ad));
+      completeFailure('timeout=${_nativeLoadTimeout.inSeconds}s');
+    });
 
     try {
       await ad.load();
     } catch (error) {
-      await ad.dispose();
+      timeoutTimer.cancel();
+      await disposeAd(ad);
       completeFailure('exception=$error');
     }
 
