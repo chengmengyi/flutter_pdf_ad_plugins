@@ -1,143 +1,102 @@
 import 'dart:async';
 
-import 'package:adjust_sdk/adjust.dart';
-import 'package:adjust_sdk/adjust_attribution.dart';
-import 'package:adjust_sdk/adjust_config.dart';
-import 'package:adjust_sdk/adjust_event_success.dart';
 import 'package:flutter/foundation.dart';
+import 'package:get_storage/get_storage.dart';
 
 class AdAdjustManager {
   AdAdjustManager._();
 
   static final AdAdjustManager instance = AdAdjustManager._();
 
-  AdjustAttribution? _cachedAttribution;
-  Completer<AdjustAttribution?>? _attributionCompleter;
-  String? _initializedAppToken;
-  String _initializedDistinctId = '';
-  bool _hasInitialized = false;
+  static const String _storageContainer = 'flutter_pdf_ad_plugins_adjust';
+  static const String _networkStorageKey = 'attribution_network';
 
-  Future<void> initialize({
-    required String appToken,
-    String? distinctId,
-  }) async {
-    final normalizedAppToken = appToken.trim();
-    final normalizedDistinctId = (distinctId ?? '').trim();
+  String? _network;
+  Future<void>? _storageReadyFuture;
+  Future<void>? _restoreFuture;
+  GetStorage? _storage;
+  bool _hasRestored = false;
 
-    if (normalizedAppToken.isEmpty) {
-      _log('init-skip-empty-app-token');
+  String? get network => _network;
+
+  Future<void> restore() async {
+    if (_hasRestored) {
       return;
     }
 
-    if (_hasInitialized &&
-        _initializedAppToken == normalizedAppToken &&
-        _initializedDistinctId == normalizedDistinctId) {
-      _log(
-        'init-skip-same-config appToken=$normalizedAppToken '
-        'distinctId=${normalizedDistinctId.isEmpty ? 'empty' : normalizedDistinctId}',
-      );
-      return;
+    final inFlight = _restoreFuture;
+    if (inFlight != null) {
+      return inFlight;
     }
 
-    _hasInitialized = true;
-    _initializedAppToken = normalizedAppToken;
-    _initializedDistinctId = normalizedDistinctId;
-    _attributionCompleter = Completer<AdjustAttribution?>();
-
-    try {
-      Adjust.removeGlobalCallbackParameter('customer_user_id');
-      if (normalizedDistinctId.isNotEmpty) {
-        Adjust.addGlobalCallbackParameter(
-          'customer_user_id',
-          normalizedDistinctId,
-        );
+    final future = () async {
+      await _ensureStorageReady();
+      if (_hasRestored) {
+        return;
       }
-
-      final adjustConfig = AdjustConfig(
-        normalizedAppToken,
-        AdjustEnvironment.production,
-      );
-      adjustConfig.attributionCallback =
-          (AdjustAttribution attributionChangedData) {
-            _cachedAttribution = attributionChangedData;
-            _log('attribution-callback ${summary(attributionChangedData)}');
-            final completer = _attributionCompleter;
-            if (completer != null && !completer.isCompleted) {
-              completer.complete(attributionChangedData);
-            }
-          };
-      adjustConfig.eventSuccessCallback =
-          (AdjustEventSuccess eventSuccessData) {
-            _log(
-              'event-success eventToken=${eventSuccessData.eventToken}, '
-              'message=${eventSuccessData.message}, '
-              'callbackId=${eventSuccessData.callbackId}',
-            );
-          };
-
-      _log(
-        'init-sdk-start appToken=$normalizedAppToken '
-        'distinctId=${normalizedDistinctId.isEmpty ? 'empty' : normalizedDistinctId}',
-      );
-      Adjust.initSdk(adjustConfig);
-      _log('init-sdk-finished');
-    } catch (error) {
-      _log('init-sdk-failed error=$error');
-      final completer = _attributionCompleter;
-      if (completer != null && !completer.isCompleted) {
-        completer.complete(null);
+      final localNetwork = _readLocalNetwork();
+      if (_hasRestored) {
+        return;
       }
-    }
+      if (localNetwork == null) {
+        _log('restore-empty');
+      } else {
+        _network = localNetwork;
+        _log('restore network=$localNetwork');
+      }
+      _hasRestored = true;
+    }();
+    _restoreFuture = future;
+    return future;
   }
 
-  Future<AdjustAttribution?> getAttribution({
-    Duration waitTimeout = Duration.zero,
-  }) async {
-    final cached = _cachedAttribution;
-    if (cached != null) {
-      _log('cached ${summary(cached)}');
-      return cached;
-    }
-
-    if (!_hasInitialized) {
-      _log('get-attribution-before-init');
-      return null;
-    }
-
-    if (waitTimeout <= Duration.zero) {
-      _log('get-attribution-no-cache');
-      return null;
-    }
-
-    final completer = _attributionCompleter ??= Completer<AdjustAttribution?>();
-    try {
-      return await completer.future.timeout(
-        waitTimeout,
-        onTimeout: () {
-          _log('await-timeout timeoutMs=${waitTimeout.inMilliseconds}');
-          return _cachedAttribution;
-        },
-      );
-    } catch (error) {
-      _log('await-failed error=$error');
-      return _cachedAttribution;
-    }
-  }
-
-  bool containsFacebook(AdjustAttribution? attribution) {
-    if (attribution == null) {
+  Future<bool> updateAttribution({String? network}) async {
+    await _ensureStorageReady();
+    final normalizedNetwork = (network ?? '').trim();
+    final nextNetwork = normalizedNetwork.isEmpty ? null : normalizedNetwork;
+    if (_network == nextNetwork) {
+      _log('update-skip-same network=${nextNetwork ?? 'null'}');
       return false;
     }
 
-    return (attribution.network ?? '').toLowerCase().contains('facebook');
+    _network = nextNetwork;
+    _hasRestored = true;
+    if (nextNetwork == null) {
+      await _storage?.remove(_networkStorageKey);
+      _log('local-remove network=null');
+    } else {
+      await _storage?.write(_networkStorageKey, nextNetwork);
+      _log('local-write network=$nextNetwork');
+    }
+    return true;
   }
 
-  String summary(AdjustAttribution? attribution) {
-    if (attribution == null) {
-      return 'null';
+  bool containsFacebook() {
+    return (_network ?? '').toLowerCase().contains('facebook');
+  }
+
+  String summary() {
+    return 'network=${_network ?? 'null'}';
+  }
+
+  Future<void> _ensureStorageReady() {
+    final inFlight = _storageReadyFuture;
+    if (inFlight != null) {
+      return inFlight;
     }
 
-    return 'network=${attribution.network}';
+    final future = () async {
+      await GetStorage.init(_storageContainer);
+      _storage = GetStorage(_storageContainer);
+      _log('storage-ready');
+    }();
+    _storageReadyFuture = future;
+    return future;
+  }
+
+  String? _readLocalNetwork() {
+    final localValue = _storage?.read<String>(_networkStorageKey);
+    return localValue == null || localValue.isEmpty ? null : localValue;
   }
 
   void _log(String message) {

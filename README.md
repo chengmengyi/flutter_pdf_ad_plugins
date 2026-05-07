@@ -53,7 +53,15 @@ flutter pub get
 
 ### 3. Adjust 可选
 
-`initAdmob` 需要传入 `adjustAppToken`。如果你暂时不用 Adjust，可以传空字符串 `''`。
+插件不会初始化 Adjust SDK。如果业务工程已经在其他模块接入 Adjust，可以在归因回调里把归因来源传给插件：
+
+```dart
+FlutterPdfAdPlugins.instance.updateAdjustAttribution(
+  network: attribution.network,
+);
+```
+
+插件会把传入的 `network` 保存到本地，下次启动即使外部 Adjust 回调没有再次触发，也会继续使用上次保存的归因来源判断 Facebook 用户分流。
 
 ## 快速开始
 
@@ -88,7 +96,6 @@ Future<void> initAds() async {
   final ad = FlutterPdfAdPlugins.instance;
 
   await ad.initAdmob(
-    adjustAppToken: '',
     distinctId: 'user_10001',
     fengKongLogic: () {
       // 返回 true 表示命中风控，不允许请求或展示广告
@@ -371,7 +378,7 @@ FlutterPdfAdPlugins.instance.updateFacebookConfigs<AdPlacement>({
 });
 ```
 
-插件会结合 install referrer 和 Adjust attribution 判断是否为 Facebook 用户。
+插件会结合 install referrer 和外部传入的 Adjust attribution network 判断是否为 Facebook 用户。
 
 ## 风控与屏蔽
 
@@ -422,7 +429,6 @@ FlutterPdfAdPlugins.instance.updateDebugPaidRevenueRange(
 final ad = FlutterPdfAdPlugins.instance;
 
 await ad.initAdmob(
-  adjustAppToken: '',
   distinctId: 'user_10001',
   fengKongLogic: () => false,
 );
@@ -454,4 +460,3 @@ await FlutterPdfAdPlugins.instance.disposeLoader();
 - `getAndroidId()` 只有 Android 有值，iOS 会返回 `null`
 - 如果广告位配置里设置了 `exportTime`，缓存到期后会自动失效
 - `userGroup` 为空时表示全部用户可用
-

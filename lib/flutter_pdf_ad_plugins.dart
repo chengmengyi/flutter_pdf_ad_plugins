@@ -140,7 +140,6 @@ class FlutterPdfAdPlugins {
 
   /// 初始化 AdMob，并启动归因和用户分组信息拉取。
   Future<void> initAdmob({
-    required String adjustAppToken,
     required String distinctId,
     required FengKongLogic fengKongLogic,
     String? smallNativeAdLayoutName,
@@ -155,18 +154,35 @@ class FlutterPdfAdPlugins {
     await MobileAds.instance.initialize();
     _isAdmobInitialized = true;
     _notifyAdmobInitialized();
+    unawaited(AdAdjustManager.instance.restore());
     unawaited(AdReferrerManager.instance.getReferrer());
-    final normalizedAdjustAppToken = adjustAppToken.trim();
-    if (normalizedAdjustAppToken.isNotEmpty) {
-      unawaited(
-        AdAdjustManager.instance.initialize(
-          appToken: normalizedAdjustAppToken,
-          distinctId: distinctId,
-        ),
-      );
-    } else {
-      _logGeneral('init-admob-skip-adjust empty-app-token');
+  }
+
+  /// 更新外部 Adjust 归因结果。
+  Future<void> updateAdjustAttribution({String? network}) async {
+    final referrerContainsFacebook = _containsFacebook(
+      AdReferrerManager.instance.cachedReferrer,
+    );
+    final wasFacebookUser =
+        referrerContainsFacebook || AdAdjustManager.instance.containsFacebook();
+    final changed = await AdAdjustManager.instance.updateAttribution(
+      network: network,
+    );
+    if (!changed) {
+      return;
     }
+
+    final isFacebookUser =
+        referrerContainsFacebook || AdAdjustManager.instance.containsFacebook();
+    if (wasFacebookUser == isFacebookUser) {
+      return;
+    }
+
+    final loader = _adLoader;
+    if (loader == null) {
+      return;
+    }
+    await _syncLoaderConfigs(loader, clearExistingCache: true);
   }
 
   /// 获取 Android 设备标识。
@@ -1025,15 +1041,25 @@ class FlutterPdfAdPlugins {
     );
   }
 
-  Future<void> _syncLoaderConfigs(FlutterPdfAdLoader<Object> loader) async {
+  Future<void> _syncLoaderConfigs(
+    FlutterPdfAdLoader<Object> loader, {
+    bool clearExistingCache = false,
+  }) async {
     final activeConfigs = await _resolveActiveConfigs();
     loader.updateConfigs(activeConfigs);
-    final stalePlacements = loader.cacheMap.keys
-        .where((placement) => !activeConfigs.containsKey(placement))
-        .toList(growable: false);
-    for (final placement in stalePlacements) {
+    final cachedPlacements = loader.cacheMap.keys.toList(growable: false);
+    final placementsToClear = clearExistingCache
+        ? cachedPlacements
+        : cachedPlacements
+            .where((placement) => !activeConfigs.containsKey(placement))
+            .toList(growable: false);
+    for (final placement in placementsToClear) {
       await loader.clearPlacementCache(placement);
-      _logGeneral('clear-stale-cache placement=$placement');
+      _logGeneral(
+        clearExistingCache
+            ? 'clear-cache-after-adjust-attribution placement=$placement'
+            : 'clear-stale-cache placement=$placement',
+      );
     }
   }
 
@@ -1107,12 +1133,10 @@ class FlutterPdfAdPlugins {
   }
 
   Future<bool> _isFacebookUser() async {
+    await AdAdjustManager.instance.restore();
     final referrer = await AdReferrerManager.instance.getReferrer();
-    final attribution = await AdAdjustManager.instance.getAttribution();
     final referrerContainsFacebook = _containsFacebook(referrer);
-    final adjustContainsFacebook = AdAdjustManager.instance.containsFacebook(
-      attribution,
-    );
+    final adjustContainsFacebook = AdAdjustManager.instance.containsFacebook();
     final isFacebookUser = referrerContainsFacebook || adjustContainsFacebook;
 
     final logSignature =
@@ -1120,7 +1144,7 @@ class FlutterPdfAdPlugins {
         'referrerContainsFacebook=$referrerContainsFacebook|'
         'adjustContainsFacebook=$adjustContainsFacebook|'
         'referrer=${referrer ?? 'null'}|'
-        'adjust=${AdAdjustManager.instance.summary(attribution)}';
+        'adjust=${AdAdjustManager.instance.summary()}';
 
     if (!kReleaseMode && _lastFacebookUserCheckLogSignature != logSignature) {
       _lastFacebookUserCheckLogSignature = logSignature;
@@ -1130,7 +1154,7 @@ class FlutterPdfAdPlugins {
         'referrerContainsFacebook=$referrerContainsFacebook '
         'adjustContainsFacebook=$adjustContainsFacebook '
         'referrer=${referrer ?? 'null'} '
-        'adjust=${AdAdjustManager.instance.summary(attribution)}',
+        'adjust=${AdAdjustManager.instance.summary()}',
       );
     }
 

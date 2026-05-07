@@ -1,6 +1,6 @@
 name: flutter_pdf_ad_plugins
 description: "flutter_pdf_ad_plugins"
-version: 0.0.7
+version: 0.0.8
 homepage: https://github.com/chengmengyi/flutter_pdf_ad_plugins
 
 environment:
@@ -13,7 +13,6 @@ dependencies:
   plugin_platform_interface: ^2.0.2
   google_mobile_ads: 7.0.0
   android_play_install_referrer: 0.4.0
-  adjust_sdk: 5.4.5
   get_storage: 2.1.1
 
 dev_dependencies:
