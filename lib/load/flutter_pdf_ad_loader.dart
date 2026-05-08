@@ -126,24 +126,22 @@ class FlutterPdfAdLoader<K> {
       return inFlight;
     }
 
-    if (!force) {
-      final cacheExpired = await _evictExpiredCacheIfNeeded(
-        placement,
-        reloadOnExpire: false,
-      );
-      if (cacheExpired) {
-        _logCacheExpired(placement, trigger: 'load');
-      }
+    final cacheExpired = await _evictExpiredCacheIfNeeded(
+      placement,
+      reloadOnExpire: false,
+    );
+    if (cacheExpired) {
+      _logCacheExpired(placement, trigger: 'load');
+    }
 
-      final cachedEntry = _cacheMap[placement];
-      if (cachedEntry != null && cachedEntry.isNotEmpty) {
-        return cachedEntry.first;
-      }
+    final cachedEntry = _cacheMap[placement];
+    if (cachedEntry != null && cachedEntry.isNotEmpty) {
+      return cachedEntry.first;
+    }
 
-      final latestInFlight = _loadingTasks[placement];
-      if (latestInFlight != null) {
-        return latestInFlight;
-      }
+    final latestInFlight = _loadingTasks[placement];
+    if (latestInFlight != null) {
+      return latestInFlight;
     }
 
     final placementConfigs =
