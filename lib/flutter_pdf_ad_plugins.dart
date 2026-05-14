@@ -1,7 +1,6 @@
 // ignore_for_file: implementation_imports
 
 import 'dart:async';
-import 'dart:io';
 import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
@@ -17,9 +16,8 @@ import 'group/ad_user_group_manager.dart';
 import 'load/flutter_pdf_ad_loader.dart';
 import 'load/loaded_ad_cache_entry.dart';
 import 'revenue/ad_revenue_manager.dart';
-import 'shield/ad_adjust_manager.dart';
-import 'shield/ad_referrer_manager.dart';
-import 'shield/referrer_block_config.dart';
+import 'attribution/ad_adjust_manager.dart';
+import 'attribution/ad_referrer_manager.dart';
 import 'ump/ump_consent_result.dart';
 
 export 'bean/ad_info_bean.dart';
@@ -114,9 +112,6 @@ class FlutterPdfAdPlugins {
   final Set<Object> _smallTemplateNativePlacements = <Object>{};
   final Set<Object> _largeBannerPlacements = <Object>{};
   final Map<Object, String> _collapsibleBannerDirections = <Object, String>{};
-  final Set<Object> _shieldPlacements = <Object>{};
-  final Map<Object, Set<Object>> _shieldPlacementTags = <Object, Set<Object>>{};
-  final Map<Object, Object> _placementShieldTagMap = <Object, Object>{};
   final Set<Object> _skipReloadAfterClosePlacements = <Object>{};
   final Set<Object> _singleFillPlacements = <Object>{};
   final Set<Object> _cooldownExcludedPlacements = <Object>{};
@@ -129,12 +124,7 @@ class FlutterPdfAdPlugins {
   _LastShownAdRecord? _lastShownAdRecord;
   FlutterPdfAdListener? _listener;
   bool _isAdmobInitialized = false;
-  bool _isBlacklistUser = false;
   final Set<String> _cmpCountryCodes = <String>{..._defaultCmpCountryCodes};
-  ReferrerBlockConfig _referrerBlockConfig = const ReferrerBlockConfig(
-    door: 0,
-    ilve: <String>[],
-  );
   FengKongLogic? _fengKongLogic;
   String? _smallNativeAdLayoutName;
 
@@ -155,11 +145,12 @@ class FlutterPdfAdPlugins {
     _isAdmobInitialized = true;
     _notifyAdmobInitialized();
     unawaited(AdAdjustManager.instance.restore());
-    unawaited(AdReferrerManager.instance.getReferrer());
+    unawaited(AdReferrerManager.instance.restore());
   }
 
   /// 更新外部 Adjust 归因结果。
   Future<void> updateAdjustAttribution({String? network}) async {
+    await AdReferrerManager.instance.restore();
     final referrerContainsFacebook = _containsFacebook(
       AdReferrerManager.instance.cachedReferrer,
     );
@@ -174,6 +165,34 @@ class FlutterPdfAdPlugins {
 
     final isFacebookUser =
         referrerContainsFacebook || AdAdjustManager.instance.containsFacebook();
+    if (wasFacebookUser == isFacebookUser) {
+      return;
+    }
+
+    final loader = _adLoader;
+    if (loader == null) {
+      return;
+    }
+    await _syncLoaderConfigs(loader, clearExistingCache: true);
+  }
+
+  /// 更新外部传入的安装来源 referrer。
+  Future<void> updateInstallReferrer({String? referrer}) async {
+    await AdAdjustManager.instance.restore();
+    await AdReferrerManager.instance.restore();
+    final wasFacebookUser =
+        _containsFacebook(AdReferrerManager.instance.cachedReferrer) ||
+        AdAdjustManager.instance.containsFacebook();
+    final changed = await AdReferrerManager.instance.updateReferrer(
+      referrer: referrer,
+    );
+    if (!changed) {
+      return;
+    }
+
+    final isFacebookUser =
+        _containsFacebook(AdReferrerManager.instance.cachedReferrer) ||
+        AdAdjustManager.instance.containsFacebook();
     if (wasFacebookUser == isFacebookUser) {
       return;
     }
@@ -258,42 +277,6 @@ class FlutterPdfAdPlugins {
       );
   }
 
-  /// 标记需要经过屏蔽逻辑判断的广告位。
-  void updateShieldPlacements<K>(Iterable<K> placements) {
-    _shieldPlacements
-      ..clear()
-      ..addAll(placements.map((placement) => placement as Object));
-  }
-
-  /// 标记需要按广告位标签经过屏蔽逻辑判断的广告位。
-  void updateShieldPlacementTags<K, T>(Map<K, Iterable<T>> placements) {
-    _shieldPlacementTags
-      ..clear()
-      ..addAll(
-        placements.map(
-          (placement, tags) => MapEntry(
-            placement as Object,
-            tags.map((tag) => tag as Object).toSet(),
-          ),
-        ),
-      );
-  }
-
-  /// 标记需要按广告位 posid 经过屏蔽逻辑判断的广告位。
-  void updateShieldPlacementPosIds<K, P>(Map<K, Iterable<P>> placements) {
-    updateShieldPlacementTags<K, P>(placements);
-  }
-
-  /// 更新广告位当前标签，用于区分同一个 placement 下不同业务位置。
-  void updatePlacementShieldTag<K, T>(K placement, T? tag) {
-    final boxedPlacement = placement as Object;
-    if (tag == null) {
-      _placementShieldTagMap.remove(boxedPlacement);
-      return;
-    }
-    _placementShieldTagMap[boxedPlacement] = tag as Object;
-  }
-
   /// 标记不参与广告冷却的广告位。
   void updateCooldownExcludedPlacements<K>(Iterable<K> placements) {
     _cooldownExcludedPlacements
@@ -355,29 +338,6 @@ class FlutterPdfAdPlugins {
   /// 判断当前是否有广告正在展示。
   bool isShowingAd() {
     return _showingAdPlacements.isNotEmpty;
-  }
-
-  /// 更新来源屏蔽配置。
-  void updateReferrerBlockConfig(Map<String, dynamic> json) {
-    _referrerBlockConfig = ReferrerBlockConfig.fromJson(json);
-    if (kReleaseMode) {
-      return;
-    }
-    debugPrint(
-      '[FlutterPdfAdPlugins] update-referrer-block-config '
-      '${_referrerBlockConfig.logSummary}',
-    );
-  }
-
-  /// 更新黑名单用户状态。
-  void updateBlacklistStatus(bool isBlacklistUser) {
-    _isBlacklistUser = isBlacklistUser;
-    if (kReleaseMode) {
-      return;
-    }
-    debugPrint(
-      '[FlutterPdfAdPlugins] update-blacklist-status isBlacklistUser=$_isBlacklistUser',
-    );
   }
 
   /// 更新需要走 CMP 的国家列表。
@@ -672,13 +632,6 @@ class FlutterPdfAdPlugins {
     )) {
       return null;
     }
-    final blockedByShield = await isBlockedByShield(
-      boxedPlacement,
-      cachedEntry.info,
-    );
-    if (blockedByShield) {
-      return null;
-    }
     final cooldownResult = _getCooldownBlockReason(
       boxedPlacement,
       cachedEntry.info,
@@ -691,7 +644,7 @@ class FlutterPdfAdPlugins {
 
   /// 判断指定广告位当前是否满足展示条件。
   ///
-  /// 仅判断配置、风控、屏蔽和冷却，不要求当前已有缓存。
+  /// 仅判断配置、风控和冷却，不要求当前已有缓存。
   Future<bool> canDisplayPlacement<K>(K placement) async {
     final boxedPlacement = placement as Object;
     if (_isFengKongBlocked('check-display', boxedPlacement)) {
@@ -707,10 +660,6 @@ class FlutterPdfAdPlugins {
       return false;
     }
     if (_isFengKongBlocked('check-display-entry', boxedPlacement, info: info)) {
-      return false;
-    }
-    final blockedByShield = await isBlockedByShield(boxedPlacement, info);
-    if (blockedByShield) {
       return false;
     }
     final cooldownResult = _getCooldownBlockReason(boxedPlacement, info);
@@ -734,19 +683,6 @@ class FlutterPdfAdPlugins {
       boxedPlacement,
       info: cachedEntry.info,
     )) {
-      return null;
-    }
-    final blockedByShield = await isBlockedByShield(
-      boxedPlacement,
-      cachedEntry.info,
-    );
-    if (blockedByShield) {
-      _log(
-        'build-native-blocked',
-        boxedPlacement,
-        cachedEntry.info,
-        extra: 'reason=shield-blocked',
-      );
       return null;
     }
     return loader.buildCachedAdWidget(boxedPlacement);
@@ -780,19 +716,6 @@ class FlutterPdfAdPlugins {
       boxedPlacement,
       info: cachedEntry.info,
     )) {
-      return null;
-    }
-    final blockedByShield = await isBlockedByShield(
-      boxedPlacement,
-      cachedEntry.info,
-    );
-    if (blockedByShield) {
-      _log(
-        'take-widget-blocked',
-        boxedPlacement,
-        cachedEntry.info,
-        extra: 'reason=shield-blocked',
-      );
       return null;
     }
     final takenEntry = await loader.takeCachedEntry(
@@ -915,11 +838,6 @@ class FlutterPdfAdPlugins {
       _logGeneral(
         '$action-blocked placement=$placement reason=fengkong-blocked',
       );
-      return false;
-    }
-    final blockedByShield = await isBlockedByShield(placement, info);
-    if (blockedByShield) {
-      _logGeneral('$action-blocked placement=$placement reason=shield-blocked');
       return false;
     }
     final cooldownResult = _getCooldownBlockReason(placement, info);
@@ -1051,8 +969,8 @@ class FlutterPdfAdPlugins {
     final placementsToClear = clearExistingCache
         ? cachedPlacements
         : cachedPlacements
-            .where((placement) => !activeConfigs.containsKey(placement))
-            .toList(growable: false);
+              .where((placement) => !activeConfigs.containsKey(placement))
+              .toList(growable: false);
     for (final placement in placementsToClear) {
       await loader.clearPlacementCache(placement);
       _logGeneral(
@@ -1134,7 +1052,8 @@ class FlutterPdfAdPlugins {
 
   Future<bool> _isFacebookUser() async {
     await AdAdjustManager.instance.restore();
-    final referrer = await AdReferrerManager.instance.getReferrer();
+    await AdReferrerManager.instance.restore();
+    final referrer = AdReferrerManager.instance.cachedReferrer;
     final referrerContainsFacebook = _containsFacebook(referrer);
     final adjustContainsFacebook = AdAdjustManager.instance.containsFacebook();
     final isFacebookUser = referrerContainsFacebook || adjustContainsFacebook;
@@ -1371,15 +1290,6 @@ class FlutterPdfAdPlugins {
       return false;
     }
 
-    final blockedByShield = await isBlockedByShield(
-      placement,
-      cachedEntry.info,
-    );
-    if (blockedByShield) {
-      _logGeneral('show-failed placement=$placement reason=shield-blocked');
-      return false;
-    }
-
     final cooldownResult = _getCooldownBlockReason(placement, cachedEntry.info);
     if (cooldownResult != null) {
       _log(
@@ -1580,66 +1490,6 @@ class FlutterPdfAdPlugins {
       'mockedRevenue=$mockedRevenue',
     );
     return mockedValueMicros;
-  }
-
-  Future<bool> isBlockedByShield(Object placement, AdInfoBean? info) async {
-    final Object? shieldTag = _placementShieldTagMap[placement];
-    final bool isShieldPlacement = _shieldPlacements.contains(placement);
-    final bool isShieldPlacementTag =
-        shieldTag != null &&
-        (_shieldPlacementTags[placement]?.contains(shieldTag) ?? false);
-    if (!isShieldPlacement && !isShieldPlacementTag) {
-      return false;
-    }
-
-    if (_isBlacklistUser) {
-      _log(
-        'show-blacklist-blocked',
-        placement,
-        info,
-        extra: 'isBlacklistUser=true shieldTag=${shieldTag ?? 'null'}',
-      );
-      return true;
-    }
-
-    if (!_referrerBlockConfig.isEnabled) {
-      return false;
-    }
-
-    if (!Platform.isAndroid) {
-      return false;
-    }
-
-    final referrer = await AdReferrerManager.instance.getReferrer();
-    _log(
-      'show-referrer-read',
-      placement,
-      info,
-      extra: 'referrer=${referrer ?? 'null'} shieldTag=${shieldTag ?? 'null'}',
-    );
-    final blocked = _referrerBlockConfig.shouldBlock(referrer);
-    if (blocked) {
-      _log(
-        'show-referrer-blocked',
-        placement,
-        info,
-        extra:
-            'referrer=${referrer ?? 'null'} '
-            'shieldTag=${shieldTag ?? 'null'} '
-            'config=${_referrerBlockConfig.logSummary}',
-      );
-    } else {
-      _log(
-        'show-referrer-allowed',
-        placement,
-        info,
-        extra:
-            'referrer=${referrer ?? 'null'} '
-            'shieldTag=${shieldTag ?? 'null'} '
-            'config=${_referrerBlockConfig.logSummary}',
-      );
-    }
-    return blocked;
   }
 
   _CooldownBlockReason? _getCooldownBlockReason(

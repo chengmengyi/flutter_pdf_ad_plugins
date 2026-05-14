@@ -8,7 +8,7 @@
 - Banner / Native / Interstitial / Rewarded / AppOpen 展示
 - 收益回调与收益阈值事件
 - Facebook 用户分流
-- 风控、黑名单、referrer 屏蔽
+- 风控
 - UMP 隐私授权流程
 
 ## 安装
@@ -51,7 +51,7 @@ flutter pub get
 <string>ca-app-pub-xxxxxxxxxxxxxxxx~xxxxxxxxxx</string>
 ```
 
-### 3. Adjust 可选
+### 3. Adjust / install referrer 可选
 
 插件不会初始化 Adjust SDK。如果业务工程已经在其他模块接入 Adjust，可以在归因回调里把归因来源传给插件：
 
@@ -62,6 +62,16 @@ FlutterPdfAdPlugins.instance.updateAdjustAttribution(
 ```
 
 插件会把传入的 `network` 保存到本地，下次启动即使外部 Adjust 回调没有再次触发，也会继续使用上次保存的归因来源判断 Facebook 用户分流。
+
+如果业务工程自己获取了 install referrer，也可以传给插件：
+
+```dart
+FlutterPdfAdPlugins.instance.updateInstallReferrer(
+  referrer: installReferrer,
+);
+```
+
+插件会把传入的 `referrer` 保存到本地，并和 Adjust attribution network 一起用于 Facebook 用户分流。
 
 ## 快速开始
 
@@ -204,11 +214,6 @@ void configAdvancedOptions() {
   ad.updateCollapsibleBannerPlacements({
     AdPlacement.homeBanner: 'bottom',
   });
-
-  // 需要经过屏蔽逻辑的广告位
-  ad.updateShieldPlacements([
-    AdPlacement.chapterEndInterstitial,
-  ]);
 
   // 关闭后不自动补加载
   ad.updateSkipReloadAfterClosePlacements([
@@ -378,26 +383,11 @@ FlutterPdfAdPlugins.instance.updateFacebookConfigs<AdPlacement>({
 });
 ```
 
-插件会结合 install referrer 和外部传入的 Adjust attribution network 判断是否为 Facebook 用户。
+插件会结合外部传入的 install referrer 和 Adjust attribution network 判断是否为 Facebook 用户。
 
-## 风控与屏蔽
+## 风控
 
-### 1. 黑名单用户
-
-```dart
-FlutterPdfAdPlugins.instance.updateBlacklistStatus(true);
-```
-
-### 2. Referrer 屏蔽
-
-```dart
-FlutterPdfAdPlugins.instance.updateReferrerBlockConfig({
-  'door': 1,
-  'ilve': ['facebook', 'restricted_source'],
-});
-```
-
-### 3. 检查当前是否正在展示广告
+### 检查当前是否正在展示广告
 
 ```dart
 final showing = FlutterPdfAdPlugins.instance.isShowingAd();
