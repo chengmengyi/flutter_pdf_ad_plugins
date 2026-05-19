@@ -27,6 +27,9 @@ class FlutterPdfAdLoader<K> {
     NativeTemplateStyle? Function(K placement)? nativeTemplateStyleBuilder,
     void Function(K placement, LoadedAdCacheEntry entry)? onPlacementLoaded,
     void Function(K placement, AdInfoBean info)? onAdRequestStart,
+    void Function(K placement, AdInfoBean info)? onAdRequestSuccess,
+    void Function(K placement, AdInfoBean info, String failReason)?
+    onAdRequestFailure,
     String Function(K placement)? placementLabelBuilder,
     void Function(
       K placement,
@@ -48,6 +51,8 @@ class FlutterPdfAdLoader<K> {
        _nativeTemplateStyleBuilder = nativeTemplateStyleBuilder,
        _onPlacementLoaded = onPlacementLoaded,
        _onAdRequestStart = onAdRequestStart,
+       _onAdRequestSuccess = onAdRequestSuccess,
+       _onAdRequestFailure = onAdRequestFailure,
        _placementLabelBuilder = placementLabelBuilder,
        _onPaidEvent = onPaidEvent {
     updateConfigs(initialConfigs);
@@ -64,6 +69,9 @@ class FlutterPdfAdLoader<K> {
   final void Function(K placement, LoadedAdCacheEntry entry)?
   _onPlacementLoaded;
   final void Function(K placement, AdInfoBean info)? _onAdRequestStart;
+  final void Function(K placement, AdInfoBean info)? _onAdRequestSuccess;
+  final void Function(K placement, AdInfoBean info, String failReason)?
+  _onAdRequestFailure;
   final String Function(K placement)? _placementLabelBuilder;
   final void Function(
     K placement,
@@ -811,6 +819,7 @@ class FlutterPdfAdLoader<K> {
   }
 
   void _logLoadFailure(K placement, AdInfoBean info, {String? reason}) {
+    _onAdRequestFailure?.call(placement, info, reason ?? 'unknown');
     _log('load-failed', placement, info: info, extra: reason);
   }
 
@@ -819,6 +828,7 @@ class FlutterPdfAdLoader<K> {
     LoadedAdCacheEntry entry, {
     required int cacheCount,
   }) {
+    _onAdRequestSuccess?.call(placement, entry.info);
     _log(
       'load-success',
       placement,

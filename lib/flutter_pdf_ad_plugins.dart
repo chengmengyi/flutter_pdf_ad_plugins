@@ -40,6 +40,12 @@ abstract class FlutterPdfAdListener {
   /// 发起广告请求时回调。
   void onAdRequestStart(Object placement, AdInfoBean info) {}
 
+  /// 广告请求成功时回调。
+  void onAdRequestSuccess(AdInfoBean info) {}
+
+  /// 广告请求失败时回调。
+  void onAdRequestFailure(AdInfoBean info, String failReason) {}
+
   /// 广告产生收益时回调。
   void onAdPaidEvent(
     Object placement,
@@ -510,6 +516,8 @@ class FlutterPdfAdPlugins {
       },
       onPlacementLoaded: _handlePlacementLoaded,
       onAdRequestStart: _handleAdRequestStart,
+      onAdRequestSuccess: _handleAdRequestSuccess,
+      onAdRequestFailure: _handleAdRequestFailure,
       onPaidEvent: _handleAdPaidEvent,
       placementLabelBuilder: placementLabelBuilder == null
           ? null
@@ -1165,6 +1173,18 @@ class FlutterPdfAdPlugins {
 
   void _handleAdRequestStart(Object placement, AdInfoBean info) {
     _listener?.onAdRequestStart(placement, info);
+  }
+
+  void _handleAdRequestSuccess(Object placement, AdInfoBean info) {
+    _listener?.onAdRequestSuccess(info);
+  }
+
+  void _handleAdRequestFailure(
+    Object placement,
+    AdInfoBean info,
+    String failReason,
+  ) {
+    _listener?.onAdRequestFailure(info, failReason);
   }
 
   Future<bool> _loadAndShowPlacement(
