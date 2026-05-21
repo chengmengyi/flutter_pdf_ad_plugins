@@ -46,6 +46,18 @@ abstract class FlutterPdfAdListener {
   /// 广告请求失败时回调。
   void onAdRequestFailure(AdInfoBean info, String failReason) {}
 
+  /// 广告展示成功时回调。
+  void onAdShowSuccess(Object placement, AdInfoBean info) {}
+
+  /// 广告展示失败时回调。
+  void onAdShowFailure(Object placement, AdInfoBean info) {}
+
+  /// 广告点击时回调。
+  void onAdClicked(Object placement, AdInfoBean info) {}
+
+  /// 广告关闭时回调。
+  void onAdClosed(Object placement, AdInfoBean info) {}
+
   /// 广告产生收益时回调。
   void onAdPaidEvent(
     Object placement,
@@ -518,6 +530,9 @@ class FlutterPdfAdPlugins {
       onAdRequestStart: _handleAdRequestStart,
       onAdRequestSuccess: _handleAdRequestSuccess,
       onAdRequestFailure: _handleAdRequestFailure,
+      onAdShowed: _handleAdShowSuccess,
+      onAdClicked: _handleAdClicked,
+      onAdClosed: _handleAdClosed,
       onPaidEvent: _handleAdPaidEvent,
       placementLabelBuilder: placementLabelBuilder == null
           ? null
@@ -1187,6 +1202,22 @@ class FlutterPdfAdPlugins {
     _listener?.onAdRequestFailure(info, failReason);
   }
 
+  void _handleAdShowSuccess(Object placement, AdInfoBean info) {
+    _listener?.onAdShowSuccess(placement, info);
+  }
+
+  void _handleAdShowFailure(Object placement, AdInfoBean info) {
+    _listener?.onAdShowFailure(placement, info);
+  }
+
+  void _handleAdClicked(Object placement, AdInfoBean info) {
+    _listener?.onAdClicked(placement, info);
+  }
+
+  void _handleAdClosed(Object placement, AdInfoBean info) {
+    _listener?.onAdClosed(placement, info);
+  }
+
   Future<bool> _loadAndShowPlacement(
     FlutterPdfAdLoader<Object> loader,
     Object placement, {
@@ -1281,11 +1312,13 @@ class FlutterPdfAdPlugins {
 
     if (cachedEntry.isExpired) {
       if (_skipReloadAfterClosePlacements.contains(placement)) {
+        final failedInfo = cachedEntry.info;
         await loader.clearPlacementCache(placement);
-        _log('show-expired', placement, cachedEntry.info);
+        _log('show-expired', placement, failedInfo);
         _logGeneral(
           'show-failed placement=$placement reason=cache-expired-skip-reload',
         );
+        _handleAdShowFailure(placement, failedInfo);
         return false;
       }
       if (_isFengKongBlocked(
@@ -1294,6 +1327,7 @@ class FlutterPdfAdPlugins {
         info: cachedEntry.info,
       )) {
         _logGeneral('show-failed placement=$placement reason=fengkong-blocked');
+        _handleAdShowFailure(placement, cachedEntry.info);
         return false;
       }
       unawaited(() async {
@@ -1307,6 +1341,7 @@ class FlutterPdfAdPlugins {
       }());
       _log('show-expired', placement, cachedEntry.info);
       _logGeneral('show-failed placement=$placement reason=cache-expired');
+      _handleAdShowFailure(placement, cachedEntry.info);
       return false;
     }
 
@@ -1321,6 +1356,7 @@ class FlutterPdfAdPlugins {
             'remainingSeconds=${cooldownResult.remainingSeconds}',
       );
       _logGeneral('show-failed placement=$placement reason=cooldown-blocked');
+      _handleAdShowFailure(placement, cachedEntry.info);
       return false;
     }
 
@@ -1333,6 +1369,7 @@ class FlutterPdfAdPlugins {
           cachedEntry.info,
           extra: 'adType=native reason=already-showing',
         );
+        _handleAdShowFailure(placement, cachedEntry.info);
         return false;
       }
       final shouldTrackShowing = _interstitialLikeNativePlacements.contains(
@@ -1348,6 +1385,7 @@ class FlutterPdfAdPlugins {
         );
         _showingPlacements.remove(placement);
         _showingAdPlacements.remove(placement);
+        _handleAdShowFailure(placement, cachedEntry.info);
         return false;
       }
       if (!context.mounted) {
@@ -1356,6 +1394,7 @@ class FlutterPdfAdPlugins {
         );
         _showingPlacements.remove(placement);
         _showingAdPlacements.remove(placement);
+        _handleAdShowFailure(placement, cachedEntry.info);
         return false;
       }
 
@@ -1367,6 +1406,7 @@ class FlutterPdfAdPlugins {
           cachedEntry,
         );
         if (shown.shown) {
+          _handleAdShowSuccess(placement, cachedEntry.info);
           _recordShownAd(placement, cachedEntry.info);
           _log(
             'show-success',
@@ -1383,6 +1423,7 @@ class FlutterPdfAdPlugins {
                 'adType=native '
                 'reason=${shown.failureReason ?? 'unknown'}',
           );
+          _handleAdShowFailure(placement, cachedEntry.info);
         }
         return shown.shown;
       } finally {
@@ -1414,6 +1455,7 @@ class FlutterPdfAdPlugins {
               'adType=${cachedEntry.info.adType} '
               'reason=${shown.failureReason ?? 'unknown'}',
         );
+        _handleAdShowFailure(placement, cachedEntry.info);
       }
       return shown.shown;
     } finally {
@@ -1628,6 +1670,7 @@ class FlutterPdfAdPlugins {
     }
 
     await loader.consumeShownEntryAfterClose(placement, entry);
+    _handleAdClosed(placement, entry.info);
     _log('native-closed-consume', placement, entry.info);
     return const _ShowResult.success();
   }

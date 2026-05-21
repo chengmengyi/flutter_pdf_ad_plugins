@@ -30,6 +30,9 @@ class FlutterPdfAdLoader<K> {
     void Function(K placement, AdInfoBean info)? onAdRequestSuccess,
     void Function(K placement, AdInfoBean info, String failReason)?
     onAdRequestFailure,
+    void Function(K placement, AdInfoBean info)? onAdShowed,
+    void Function(K placement, AdInfoBean info)? onAdClicked,
+    void Function(K placement, AdInfoBean info)? onAdClosed,
     String Function(K placement)? placementLabelBuilder,
     void Function(
       K placement,
@@ -53,6 +56,9 @@ class FlutterPdfAdLoader<K> {
        _onAdRequestStart = onAdRequestStart,
        _onAdRequestSuccess = onAdRequestSuccess,
        _onAdRequestFailure = onAdRequestFailure,
+       _onAdShowed = onAdShowed,
+       _onAdClicked = onAdClicked,
+       _onAdClosed = onAdClosed,
        _placementLabelBuilder = placementLabelBuilder,
        _onPaidEvent = onPaidEvent {
     updateConfigs(initialConfigs);
@@ -72,6 +78,9 @@ class FlutterPdfAdLoader<K> {
   final void Function(K placement, AdInfoBean info)? _onAdRequestSuccess;
   final void Function(K placement, AdInfoBean info, String failReason)?
   _onAdRequestFailure;
+  final void Function(K placement, AdInfoBean info)? _onAdShowed;
+  final void Function(K placement, AdInfoBean info)? _onAdClicked;
+  final void Function(K placement, AdInfoBean info)? _onAdClosed;
   final String Function(K placement)? _placementLabelBuilder;
   final void Function(
     K placement,
@@ -238,7 +247,11 @@ class FlutterPdfAdLoader<K> {
     if (ad is AppOpenAd) {
       final completer = Completer<ShowAdResult>();
       ad.fullScreenContentCallback = FullScreenContentCallback<AppOpenAd>(
+        onAdShowedFullScreenContent: (_) {
+          _onAdShowed?.call(placement, entry.info);
+        },
         onAdDismissedFullScreenContent: (_) async {
+          _onAdClosed?.call(placement, entry.info);
           await _consumeShownEntryAfterShow(placement, entry, trigger: 'close');
           if (!completer.isCompleted) {
             completer.complete(const ShowAdResult.success());
@@ -259,6 +272,9 @@ class FlutterPdfAdLoader<K> {
               trigger: 'failed-show',
             ),
           );
+        },
+        onAdClicked: (_) {
+          _onAdClicked?.call(placement, entry.info);
         },
       );
       try {
@@ -272,7 +288,11 @@ class FlutterPdfAdLoader<K> {
     if (ad is InterstitialAd) {
       final completer = Completer<ShowAdResult>();
       ad.fullScreenContentCallback = FullScreenContentCallback<InterstitialAd>(
+        onAdShowedFullScreenContent: (_) {
+          _onAdShowed?.call(placement, entry.info);
+        },
         onAdDismissedFullScreenContent: (_) async {
+          _onAdClosed?.call(placement, entry.info);
           await _consumeShownEntryAfterShow(placement, entry, trigger: 'close');
           if (!completer.isCompleted) {
             completer.complete(const ShowAdResult.success());
@@ -293,6 +313,9 @@ class FlutterPdfAdLoader<K> {
               trigger: 'failed-show',
             ),
           );
+        },
+        onAdClicked: (_) {
+          _onAdClicked?.call(placement, entry.info);
         },
       );
       try {
@@ -306,7 +329,11 @@ class FlutterPdfAdLoader<K> {
     if (ad is RewardedAd) {
       final completer = Completer<ShowAdResult>();
       ad.fullScreenContentCallback = FullScreenContentCallback<RewardedAd>(
+        onAdShowedFullScreenContent: (_) {
+          _onAdShowed?.call(placement, entry.info);
+        },
         onAdDismissedFullScreenContent: (_) async {
+          _onAdClosed?.call(placement, entry.info);
           await _consumeShownEntryAfterShow(placement, entry, trigger: 'close');
           if (!completer.isCompleted) {
             completer.complete(const ShowAdResult.success());
@@ -327,6 +354,9 @@ class FlutterPdfAdLoader<K> {
               trigger: 'failed-show',
             ),
           );
+        },
+        onAdClicked: (_) {
+          _onAdClicked?.call(placement, entry.info);
         },
       );
       try {
@@ -737,6 +767,12 @@ class FlutterPdfAdLoader<K> {
             'code=${error.code} message=${error.message} domain=${error.domain}',
           );
         },
+        onAdClosed: (_) {
+          _onAdClosed?.call(placement, info);
+        },
+        onAdClicked: (_) {
+          _onAdClicked?.call(placement, info);
+        },
         onPaidEvent: _buildOnPaidEvent(placement, info),
       ),
       request:
@@ -783,6 +819,12 @@ class FlutterPdfAdLoader<K> {
           completeFailure(
             'code=${error.code} message=${error.message} domain=${error.domain}',
           );
+        },
+        onAdClosed: (_) {
+          _onAdClosed?.call(placement, info);
+        },
+        onAdClicked: (_) {
+          _onAdClicked?.call(placement, info);
         },
         onPaidEvent: _buildOnPaidEvent(placement, info),
       ),
