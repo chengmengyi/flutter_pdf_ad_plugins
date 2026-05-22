@@ -19,7 +19,8 @@ class FlutterPdfAdPluginsPlugin :
     private var flutterPluginBinding: FlutterPluginBinding? = null
     private var guideCompactNativeFactory: GuideCompactNativeAdFactory? = null
     private var smallNativeAdLayoutName: String? = null
-    private var nativeFactoryRegistered = false
+    private var guideCompactNativeFactoryRegistered = false
+    private var fullScreenNativeFactoryRegistered = false
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         this.flutterPluginBinding = flutterPluginBinding
@@ -69,36 +70,52 @@ class FlutterPdfAdPluginsPlugin :
     }
 
     private fun registerNativeAdFactories(binding: FlutterPluginBinding) {
-        if (nativeFactoryRegistered) {
-            return
+        if (!guideCompactNativeFactoryRegistered) {
+            val guideFactory = GuideCompactNativeAdFactory(binding.applicationContext)
+            guideFactory.layoutName = smallNativeAdLayoutName
+            val guideRegistered = GoogleMobileAdsPlugin.registerNativeAdFactory(
+                binding.flutterEngine,
+                GUIDE_COMPACT_NATIVE_FACTORY_ID,
+                guideFactory
+            )
+            if (guideRegistered) {
+                guideCompactNativeFactory = guideFactory
+                guideCompactNativeFactoryRegistered = true
+            }
         }
-        val factory = GuideCompactNativeAdFactory(binding.applicationContext)
-        factory.layoutName = smallNativeAdLayoutName
-        val registered = GoogleMobileAdsPlugin.registerNativeAdFactory(
-            binding.flutterEngine,
-            GUIDE_COMPACT_NATIVE_FACTORY_ID,
-            factory
-        )
-        if (registered) {
-            guideCompactNativeFactory = factory
-            nativeFactoryRegistered = true
+        if (!fullScreenNativeFactoryRegistered) {
+            val fullScreenRegistered = GoogleMobileAdsPlugin.registerNativeAdFactory(
+                binding.flutterEngine,
+                FULL_SCREEN_NATIVE_FACTORY_ID,
+                FullScreenNativeAdFactory(binding.applicationContext)
+            )
+            if (fullScreenRegistered) {
+                fullScreenNativeFactoryRegistered = true
+            }
         }
     }
 
     private fun unregisterNativeAdFactories(binding: FlutterPluginBinding) {
-        if (nativeFactoryRegistered) {
+        if (guideCompactNativeFactoryRegistered) {
             GoogleMobileAdsPlugin.unregisterNativeAdFactory(
                 binding.flutterEngine,
                 GUIDE_COMPACT_NATIVE_FACTORY_ID
             )
         }
+        if (fullScreenNativeFactoryRegistered) {
+            GoogleMobileAdsPlugin.unregisterNativeAdFactory(
+                binding.flutterEngine,
+                FULL_SCREEN_NATIVE_FACTORY_ID
+            )
+        }
         guideCompactNativeFactory = null
-        nativeFactoryRegistered = false
+        guideCompactNativeFactoryRegistered = false
+        fullScreenNativeFactoryRegistered = false
     }
 
     private fun ensureNativeAdFactoryRegistered() {
         val binding = flutterPluginBinding ?: return
-        if (nativeFactoryRegistered) {
+        if (guideCompactNativeFactoryRegistered && fullScreenNativeFactoryRegistered) {
             return
         }
         try {
@@ -109,5 +126,6 @@ class FlutterPdfAdPluginsPlugin :
 
     companion object {
         const val GUIDE_COMPACT_NATIVE_FACTORY_ID = "guide_compact_native"
+        const val FULL_SCREEN_NATIVE_FACTORY_ID = "full_screen_native"
     }
 }

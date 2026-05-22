@@ -28,6 +28,8 @@ export 'ump/ump_consent_result.dart';
 
 typedef FengKongLogic = bool Function();
 
+const String _fullScreenNativeFactoryId = 'full_screen_native';
+
 abstract class FlutterPdfAdListener {
   const FlutterPdfAdListener();
 
@@ -41,16 +43,16 @@ abstract class FlutterPdfAdListener {
   void onAdRequestStart(Object placement, AdInfoBean info) {}
 
   /// 广告请求成功时回调。
-  void onAdRequestSuccess(AdInfoBean info) {}
+  void onAdRequestSuccess(AdInfoBean info, String adNetwork) {}
 
   /// 广告请求失败时回调。
   void onAdRequestFailure(AdInfoBean info, String failReason) {}
 
   /// 广告展示成功时回调。
-  void onAdShowSuccess(Object placement, AdInfoBean info) {}
+  void onAdShowSuccess(Object placement, AdInfoBean info, String adNetwork) {}
 
   /// 广告展示失败时回调。
-  void onAdShowFailure(Object placement, AdInfoBean info) {}
+  void onAdShowFailure(Object placement, AdInfoBean info, String adNetwork) {}
 
   /// 广告点击时回调。
   void onAdClicked(Object placement, AdInfoBean info) {}
@@ -513,9 +515,22 @@ class FlutterPdfAdPlugins {
         return _buildBannerRequest(placement, request);
       },
       nativeAdFactoryIdBuilder: (placement) {
+        if (_interstitialLikeNativePlacements.contains(placement)) {
+          return _fullScreenNativeFactoryId;
+        }
         if (_smallNativeAdLayoutName != null &&
             _smallTemplateNativePlacements.contains(placement)) {
           return 'guide_compact_native';
+        }
+        return null;
+      },
+      nativeAdOptionsBuilder: (placement) {
+        if (_interstitialLikeNativePlacements.contains(placement)) {
+          return NativeAdOptions(
+            adChoicesPlacement: AdChoicesPlacement.topLeftCorner,
+            mediaAspectRatio: MediaAspectRatio.portrait,
+            videoOptions: VideoOptions(startMuted: true),
+          );
         }
         return null;
       },
@@ -1190,8 +1205,12 @@ class FlutterPdfAdPlugins {
     _listener?.onAdRequestStart(placement, info);
   }
 
-  void _handleAdRequestSuccess(Object placement, AdInfoBean info) {
-    _listener?.onAdRequestSuccess(info);
+  void _handleAdRequestSuccess(
+    Object placement,
+    AdInfoBean info,
+    String adNetwork,
+  ) {
+    _listener?.onAdRequestSuccess(info, adNetwork);
   }
 
   void _handleAdRequestFailure(
@@ -1202,12 +1221,20 @@ class FlutterPdfAdPlugins {
     _listener?.onAdRequestFailure(info, failReason);
   }
 
-  void _handleAdShowSuccess(Object placement, AdInfoBean info) {
-    _listener?.onAdShowSuccess(placement, info);
+  void _handleAdShowSuccess(
+    Object placement,
+    AdInfoBean info,
+    String adNetwork,
+  ) {
+    _listener?.onAdShowSuccess(placement, info, adNetwork);
   }
 
-  void _handleAdShowFailure(Object placement, AdInfoBean info) {
-    _listener?.onAdShowFailure(placement, info);
+  void _handleAdShowFailure(
+    Object placement,
+    AdInfoBean info,
+    String adNetwork,
+  ) {
+    _listener?.onAdShowFailure(placement, info, adNetwork);
   }
 
   void _handleAdClicked(Object placement, AdInfoBean info) {
@@ -1318,7 +1345,11 @@ class FlutterPdfAdPlugins {
         _logGeneral(
           'show-failed placement=$placement reason=cache-expired-skip-reload',
         );
-        _handleAdShowFailure(placement, failedInfo);
+        _handleAdShowFailure(
+          placement,
+          failedInfo,
+          _resolveAdNetwork(cachedEntry.ad),
+        );
         return false;
       }
       if (_isFengKongBlocked(
@@ -1327,7 +1358,11 @@ class FlutterPdfAdPlugins {
         info: cachedEntry.info,
       )) {
         _logGeneral('show-failed placement=$placement reason=fengkong-blocked');
-        _handleAdShowFailure(placement, cachedEntry.info);
+        _handleAdShowFailure(
+          placement,
+          cachedEntry.info,
+          _resolveAdNetwork(cachedEntry.ad),
+        );
         return false;
       }
       unawaited(() async {
@@ -1341,7 +1376,11 @@ class FlutterPdfAdPlugins {
       }());
       _log('show-expired', placement, cachedEntry.info);
       _logGeneral('show-failed placement=$placement reason=cache-expired');
-      _handleAdShowFailure(placement, cachedEntry.info);
+      _handleAdShowFailure(
+        placement,
+        cachedEntry.info,
+        _resolveAdNetwork(cachedEntry.ad),
+      );
       return false;
     }
 
@@ -1356,7 +1395,11 @@ class FlutterPdfAdPlugins {
             'remainingSeconds=${cooldownResult.remainingSeconds}',
       );
       _logGeneral('show-failed placement=$placement reason=cooldown-blocked');
-      _handleAdShowFailure(placement, cachedEntry.info);
+      _handleAdShowFailure(
+        placement,
+        cachedEntry.info,
+        _resolveAdNetwork(cachedEntry.ad),
+      );
       return false;
     }
 
@@ -1369,7 +1412,11 @@ class FlutterPdfAdPlugins {
           cachedEntry.info,
           extra: 'adType=native reason=already-showing',
         );
-        _handleAdShowFailure(placement, cachedEntry.info);
+        _handleAdShowFailure(
+          placement,
+          cachedEntry.info,
+          _resolveAdNetwork(cachedEntry.ad),
+        );
         return false;
       }
       final shouldTrackShowing = _interstitialLikeNativePlacements.contains(
@@ -1385,7 +1432,11 @@ class FlutterPdfAdPlugins {
         );
         _showingPlacements.remove(placement);
         _showingAdPlacements.remove(placement);
-        _handleAdShowFailure(placement, cachedEntry.info);
+        _handleAdShowFailure(
+          placement,
+          cachedEntry.info,
+          _resolveAdNetwork(cachedEntry.ad),
+        );
         return false;
       }
       if (!context.mounted) {
@@ -1394,7 +1445,11 @@ class FlutterPdfAdPlugins {
         );
         _showingPlacements.remove(placement);
         _showingAdPlacements.remove(placement);
-        _handleAdShowFailure(placement, cachedEntry.info);
+        _handleAdShowFailure(
+          placement,
+          cachedEntry.info,
+          _resolveAdNetwork(cachedEntry.ad),
+        );
         return false;
       }
 
@@ -1404,17 +1459,22 @@ class FlutterPdfAdPlugins {
           loader,
           placement,
           cachedEntry,
+          onShown: () {
+            _handleAdShowSuccess(
+              placement,
+              cachedEntry.info,
+              _resolveAdNetwork(cachedEntry.ad),
+            );
+            _recordShownAd(placement, cachedEntry.info);
+            _log(
+              'show-success',
+              placement,
+              cachedEntry.info,
+              extra: 'adType=native',
+            );
+          },
         );
-        if (shown.shown) {
-          _handleAdShowSuccess(placement, cachedEntry.info);
-          _recordShownAd(placement, cachedEntry.info);
-          _log(
-            'show-success',
-            placement,
-            cachedEntry.info,
-            extra: 'adType=native',
-          );
-        } else {
+        if (!shown.shown) {
           _log(
             'show-failed',
             placement,
@@ -1423,7 +1483,11 @@ class FlutterPdfAdPlugins {
                 'adType=native '
                 'reason=${shown.failureReason ?? 'unknown'}',
           );
-          _handleAdShowFailure(placement, cachedEntry.info);
+          _handleAdShowFailure(
+            placement,
+            cachedEntry.info,
+            _resolveAdNetwork(cachedEntry.ad),
+          );
         }
         return shown.shown;
       } finally {
@@ -1455,7 +1519,11 @@ class FlutterPdfAdPlugins {
               'adType=${cachedEntry.info.adType} '
               'reason=${shown.failureReason ?? 'unknown'}',
         );
-        _handleAdShowFailure(placement, cachedEntry.info);
+        _handleAdShowFailure(
+          placement,
+          cachedEntry.info,
+          _resolveAdNetwork(cachedEntry.ad),
+        );
       }
       return shown.shown;
     } finally {
@@ -1473,8 +1541,7 @@ class FlutterPdfAdPlugins {
   ) async {
     final effectiveValueMicros = _resolvePaidValueMicros(valueMicros);
     final revenue = effectiveValueMicros / 1000000;
-    final adNetwork =
-        ad.responseInfo?.loadedAdapterResponseInfo?.adSourceName ?? "Admob";
+    final adNetwork = _resolveAdNetwork(ad);
     final precisionType = precision.name;
     _log(
       'paid-event',
@@ -1552,6 +1619,10 @@ class FlutterPdfAdPlugins {
       'mockedRevenue=$mockedRevenue',
     );
     return mockedValueMicros;
+  }
+
+  String _resolveAdNetwork(Ad? ad) {
+    return ad?.responseInfo?.loadedAdapterResponseInfo?.adSourceName ?? 'Admob';
   }
 
   _CooldownBlockReason? _getCooldownBlockReason(
@@ -1635,8 +1706,9 @@ class FlutterPdfAdPlugins {
     BuildContext context,
     FlutterPdfAdLoader<Object> loader,
     Object placement,
-    LoadedAdCacheEntry entry,
-  ) async {
+    LoadedAdCacheEntry entry, {
+    required VoidCallback onShown,
+  }) async {
     final ad = entry.ad;
     if (ad is! NativeAd) {
       _log('show-native-invalid-ad', placement, entry.info);
@@ -1655,18 +1727,22 @@ class FlutterPdfAdPlugins {
     }
 
     if (interstitialLike) {
-      await navigator.push(
+      final routeFuture = navigator.push(
         MaterialPageRoute<void>(
           builder: (_) => _NativeInterstitialPage(ad: ad),
           fullscreenDialog: true,
         ),
       );
+      onShown();
+      await routeFuture;
     } else {
-      await showDialog<void>(
+      final dialogFuture = showDialog<void>(
         context: navigator.context,
         useRootNavigator: true,
         builder: (_) => _NativeDialog(ad: ad),
       );
+      onShown();
+      await dialogFuture;
     }
 
     await loader.consumeShownEntryAfterClose(placement, entry);
@@ -1823,31 +1899,23 @@ class _NativeInterstitialPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black87,
+      backgroundColor: Colors.white,
       body: SafeArea(
         child: Stack(
           children: [
-            Center(
-              child: Container(
-                constraints: const BoxConstraints(
-                  maxWidth: 360,
-                  maxHeight: 520,
-                ),
-                margin: const EdgeInsets.all(24),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: AdWidget(ad: ad),
-              ),
-            ),
+            SizedBox.expand(child: AdWidget(ad: ad)),
             Positioned(
               top: 12,
               right: 12,
               child: IconButton(
                 onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.close, color: Colors.white),
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.black45,
+                  foregroundColor: Colors.white,
+                  fixedSize: const Size.square(36),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                icon: const Icon(Icons.close, size: 20),
               ),
             ),
           ],
