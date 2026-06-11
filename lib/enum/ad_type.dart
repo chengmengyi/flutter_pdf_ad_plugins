@@ -36,6 +36,7 @@ extension AdTypeX on AdType {
         return AdType.native;
       case 'rv':
       case 'raw':
+      case 'rwd':
         return AdType.rewarded;
       case 'ban':
         return AdType.banner;
