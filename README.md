@@ -2,7 +2,7 @@
 
 `flutter_pdf_ad_plugins` 是一个基于 `google_mobile_ads` 的广告封装插件，提供了以下能力：
 
-- AdMob 初始化
+- 插件配置初始化与 AdMob SDK 初始化
 - 广告位配置管理
 - 广告预加载与缓存
 - Banner / Native / Interstitial / Rewarded / AppOpen 展示
@@ -97,13 +97,15 @@ enum AdPlacement {
 }
 ```
 
-### 3. 初始化插件
+### 3. 绑定监听并初始化
 
-通常在应用启动时初始化：
+建议先设置监听器，再初始化插件配置和 AdMob SDK：
 
 ```dart
 Future<void> initAds() async {
   final ad = FlutterPdfAdPlugins.instance;
+
+  ad.setListener(AppAdListener());
 
   await ad.initAdmob(
     distinctId: 'user_10001',
@@ -112,8 +114,13 @@ Future<void> initAds() async {
       return false;
     },
   );
+
+  // 如果不想阻塞启动流程，可以用 unawaited(ad.initializeAdmob())。
+  await ad.initializeAdmob();
 }
 ```
+
+`initAdmob` 只初始化插件本地配置、风控、用户分组和归因恢复；`initializeAdmob` 用于初始化 Google Mobile Ads SDK。`setListener` 不会回放 AdMob 初始化完成事件，因此如果业务依赖 `onAdmobInitialized`，请先 `setListener` 再调用 `initializeAdmob`。
 
 ### 4. 可选：处理 UMP 隐私授权
 
@@ -131,6 +138,34 @@ Future<void> initUmp() async {
 ```dart
 final needCmp = FlutterPdfAdPlugins.instance.shouldUseCmpForCurrentLocale();
 ```
+
+UMP 流程会通过 listener 暴露业务打点位置：
+
+```dart
+class AppAdListener extends FlutterPdfAdListener {
+  @override
+  void onUmpFormRequest() {
+    // 对应 ump_form_request
+  }
+
+  @override
+  void onUmpFormLoad() {
+    // 对应 ump_form_load
+  }
+
+  @override
+  void onUmpConsentCanRequestAds(bool canRequestAds) {
+    debugPrint('canRequestAds=$canRequestAds');
+  }
+
+  @override
+  void onUmpConsentFlowComplete(UmpConsentResult result) {
+    debugPrint('consentStatus=${result.consentStatus}');
+  }
+}
+```
+
+`onUmpConsentFlowStart` 表示进入插件 UMP 流程；`onUmpConsentFormShow` 表示准备调用 UMP 表单加载/展示逻辑，不保证一定有可见弹窗。
 
 ## 广告位配置
 
@@ -321,6 +356,26 @@ final shown = await FlutterPdfAdPlugins.instance.loadAndShow(
 ```dart
 class AdListener extends FlutterPdfAdListener {
   @override
+  void onAdRequestSuccess(
+    Object placement,
+    AdInfoBean info,
+    String adNetwork,
+    String adSourceName,
+  ) {
+    debugPrint('load success placement=$placement source=$adSourceName');
+  }
+
+  @override
+  void onAdShowSuccess(
+    Object placement,
+    AdInfoBean info,
+    String adNetwork,
+    String adSourceName,
+  ) {
+    debugPrint('show success placement=$placement source=$adSourceName');
+  }
+
+  @override
   void onAdPaidEvent(
     Object placement,
     double revenue,
@@ -349,6 +404,8 @@ void bindAdListener() {
   FlutterPdfAdPlugins.instance.setListener(AdListener());
 }
 ```
+
+`adNetwork` 为插件兼容字段；`adSourceName` 来自 AdMob SDK 的 `responseInfo.loadedAdapterResponseInfo.adSourceName`，更适合表示本次广告实际填充来源。请求发起回调 `onAdRequestStart` 发生在 SDK 返回 response 前，因此没有 `adSourceName`。
 
 ### 收益阈值事件配置
 
@@ -416,6 +473,7 @@ await ad.initAdmob(
   distinctId: 'user_10001',
   fengKongLogic: () => false,
 );
+await ad.initializeAdmob();
 
 ad.updateConfigs<AdPlacement>(configs);
 await ad.preloadAll<AdPlacement>();
@@ -439,6 +497,9 @@ await FlutterPdfAdPlugins.instance.disposeLoader();
 ## 注意事项
 
 - `showCachedAd` 和 `loadAndShow` 在展示 Native 弹窗时需要传 `context`
+- 如果业务依赖 `onAdmobInitialized`，请先 `setListener`，再调用 `initializeAdmob`
+- `MobileAds.initialize` 可能较慢；不想阻塞启动时可以自行 `unawaited(FlutterPdfAdPlugins.instance.initializeAdmob())`
+- 插件不再内置广告展示冷却判断，冷却逻辑请放在业务项目里处理
 - `takeCachedAdWidget` 适合列表流消费，取出后会从缓存中移除
 - `buildCachedAdWidget` 只是读取当前缓存，不会移除缓存
 - `getAndroidId()` 只有 Android 有值，iOS 会返回 `null`

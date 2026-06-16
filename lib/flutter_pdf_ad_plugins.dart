@@ -200,7 +200,10 @@ class FlutterPdfAdPlugins {
   FengKongLogic? _fengKongLogic;
   String? _smallNativeAdLayoutName;
 
-  /// 初始化 AdMob，并启动归因和用户分组信息拉取。
+  /// 初始化插件本地配置，并启动归因和用户分组信息拉取。
+  ///
+  /// 这个方法不会调用 [MobileAds.initialize]。如果业务需要显式初始化
+  /// Google Mobile Ads SDK，请先设置监听器，再调用 [initializeAdmob]。
   Future<void> initAdmob({
     required String distinctId,
     required FengKongLogic fengKongLogic,
@@ -217,6 +220,11 @@ class FlutterPdfAdPlugins {
     unawaited(AdReferrerManager.instance.restore());
   }
 
+  /// 初始化 Google Mobile Ads SDK。
+  ///
+  /// 建议在 [setListener] 之后调用，这样初始化完成时可以收到
+  /// [FlutterPdfAdListener.onAdmobInitialized]。此方法会等待 SDK 初始化完成；
+  /// 如果不希望阻塞启动流程，业务侧可以自行使用 `unawaited` 调用。
   Future<void> initializeAdmob() async {
     try {
       await MobileAds.instance.initialize();
