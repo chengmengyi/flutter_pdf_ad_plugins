@@ -195,7 +195,7 @@ void configAds() {
 void configAdvancedOptions() {
   final ad = FlutterPdfAdPlugins.instance;
 
-  // Native 按插屏样式展示，并参与冷却时间控制
+  // Native 按插屏样式展示
   ad.updateInterstitialLikeNativePlacements([
     AdPlacement.homeNative,
   ]);
@@ -219,12 +219,6 @@ void configAdvancedOptions() {
   ad.updateSkipReloadAfterClosePlacements([
     AdPlacement.reward,
   ]);
-
-  // 不同广告类型之间的冷却时间
-  ad.updateProductCooldownSeconds(30);
-
-  // 同一素材的冷却时间
-  ad.updateInventoryCooldownSeconds(30);
 }
 ```
 
@@ -449,4 +443,4 @@ await FlutterPdfAdPlugins.instance.disposeLoader();
 - `buildCachedAdWidget` 只是读取当前缓存，不会移除缓存
 - `getAndroidId()` 只有 Android 有值，iOS 会返回 `null`
 - 如果广告位配置里设置了 `exportTime`，缓存到期后会自动失效
-- `userGroup` 为空时表示全部用户可用
+- `userGroup` 为空或配置为 `[0]` 时表示全部用户可用

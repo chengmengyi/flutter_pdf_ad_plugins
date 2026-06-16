@@ -39,26 +39,77 @@ abstract class FlutterPdfAdListener {
   /// 用户分组解析成功时回调。
   void onUserGroupResolved(int userGroup) {}
 
+  /// 进入 UMP 隐私协议流程时回调。
+  void onUmpConsentFlowStart(String countryCode, bool requiresCmpByLocale) {}
+
+  /// 准备调用 UMP 隐私协议表单加载/展示逻辑时回调。
+  void onUmpConsentFormShow() {}
+
+  /// UMP 隐私协议流程完成时回调。
+  void onUmpConsentFlowComplete(UmpConsentResult result) {}
+
+  /// UMP 隐私协议流程结束后是否可以请求广告。
+  void onUmpConsentCanRequestAds(bool canRequestAds) {}
+
   /// 发起广告请求时回调。
   void onAdRequestStart(Object placement, AdInfoBean info) {}
 
   /// 广告请求成功时回调。
-  void onAdRequestSuccess(AdInfoBean info, String adNetwork) {}
+  void onAdRequestSuccess(
+    Object placement,
+    AdInfoBean info,
+    String adNetwork,
+    String adSourceName,
+  ) {}
 
   /// 广告请求失败时回调。
-  void onAdRequestFailure(AdInfoBean info, String failReason) {}
+  void onAdRequestFailure(
+    Object placement,
+    AdInfoBean info,
+    String failReason,
+    String adNetwork,
+    String adSourceName,
+  ) {}
+
+  /// 广告满足展示条件，准备调用展示逻辑时回调。
+  void onAdShowStart(
+    Object placement,
+    AdInfoBean info,
+    String adNetwork,
+    String adSourceName,
+  ) {}
 
   /// 广告展示成功时回调。
-  void onAdShowSuccess(Object placement, AdInfoBean info, String adNetwork) {}
+  void onAdShowSuccess(
+    Object placement,
+    AdInfoBean info,
+    String adNetwork,
+    String adSourceName,
+  ) {}
 
   /// 广告展示失败时回调。
-  void onAdShowFailure(Object placement, AdInfoBean info, String adNetwork) {}
+  void onAdShowFailure(
+    Object placement,
+    AdInfoBean info,
+    String adNetwork,
+    String adSourceName,
+  ) {}
 
   /// 广告点击时回调。
-  void onAdClicked(Object placement, AdInfoBean info) {}
+  void onAdClicked(
+    Object placement,
+    AdInfoBean info,
+    String adNetwork,
+    String adSourceName,
+  ) {}
 
   /// 广告关闭时回调。
-  void onAdClosed(Object placement, AdInfoBean info) {}
+  void onAdClosed(
+    Object placement,
+    AdInfoBean info,
+    String adNetwork,
+    String adSourceName,
+  ) {}
 
   /// 广告产生收益时回调。
   void onAdPaidEvent(
@@ -118,8 +169,6 @@ class FlutterPdfAdPlugins {
     'GB',
   };
 
-  int _productCooldownSeconds = 30;
-  int _inventoryCooldownSeconds = 30;
   double _debugMinRevenue = 0.008;
   double _debugMaxRevenue = 0.02;
 
@@ -134,14 +183,12 @@ class FlutterPdfAdPlugins {
   final Map<Object, String> _collapsibleBannerDirections = <Object, String>{};
   final Set<Object> _skipReloadAfterClosePlacements = <Object>{};
   final Set<Object> _singleFillPlacements = <Object>{};
-  final Set<Object> _cooldownExcludedPlacements = <Object>{};
   final Map<Object, Set<VoidCallback>> _placementLoadedListeners =
       <Object, Set<VoidCallback>>{};
   final Set<Object> _showingPlacements = <Object>{};
   final Set<Object> _showingAdPlacements = <Object>{};
   final Map<Object, String> _userGroupFilterLogCache = <Object, String>{};
   String? _lastFacebookUserCheckLogSignature;
-  _LastShownAdRecord? _lastShownAdRecord;
   FlutterPdfAdListener? _listener;
   bool _isAdmobInitialized = false;
   final Set<String> _cmpCountryCodes = <String>{..._defaultCmpCountryCodes};
@@ -234,16 +281,6 @@ class FlutterPdfAdPlugins {
     return AdUserGroupManager.instance.getUserGroup();
   }
 
-  /// 更新不同广告类型之间的展示冷却时间。
-  void updateProductCooldownSeconds(int seconds) {
-    _productCooldownSeconds = seconds < 0 ? 0 : seconds;
-  }
-
-  /// 更新同一广告位素材的展示冷却时间。
-  void updateInventoryCooldownSeconds(int seconds) {
-    _inventoryCooldownSeconds = seconds < 0 ? 0 : seconds;
-  }
-
   /// 设置调试环境下的收益模拟区间。
   void updateDebugPaidRevenueRange({
     required double minRevenue,
@@ -295,13 +332,6 @@ class FlutterPdfAdPlugins {
               MapEntry(placement as Object, direction.trim()),
         ),
       );
-  }
-
-  /// 标记不参与广告冷却的广告位。
-  void updateCooldownExcludedPlacements<K>(Iterable<K> placements) {
-    _cooldownExcludedPlacements
-      ..clear()
-      ..addAll(placements.map((placement) => placement as Object));
   }
 
   /// 监听指定广告位加载完成。
@@ -404,6 +434,7 @@ class FlutterPdfAdPlugins {
   }) async {
     final countryCode = getCurrentCountryCode();
     final requiresCmpByLocale = _cmpCountryCodes.contains(countryCode);
+    _handleUmpConsentFlowStart(countryCode, requiresCmpByLocale);
 
     if (!requiresCmpByLocale) {
       final consentStatus = fetchStatusSnapshot
@@ -422,41 +453,49 @@ class FlutterPdfAdPlugins {
             'countryCode=$countryCode canRequestAds=$canRequestAds '
             'consentStatus=$consentStatus privacyStatus=$privacyStatus',
       );
-      return UmpConsentResult(
+      final result = UmpConsentResult(
         countryCode: countryCode,
         requiresCmpByLocale: false,
         canRequestAds: canRequestAds,
         consentStatus: consentStatus,
         privacyOptionsRequirementStatus: privacyStatus,
       );
+      _handleUmpConsentCanRequestAds(canRequestAds);
+      _handleUmpConsentFlowComplete(result);
+      return result;
     }
 
-    final consentStatus = await ConsentInformation.instance.getConsentStatus();
-    if (consentStatus == ConsentStatus.required ||
-        consentStatus == ConsentStatus.unknown) {
-      final requestParameters = params ?? ConsentRequestParameters();
-      final requestError = await _requestConsentInfoUpdate(requestParameters);
-      if (requestError == null && loadAndShowFormIfRequired) {
-        await _loadAndShowConsentFormIfRequired();
-      }
+    final requestParameters = params ?? ConsentRequestParameters();
+    final requestError = await _requestConsentInfoUpdate(requestParameters);
+
+    FormError? formError;
+    if (requestError == null && loadAndShowFormIfRequired) {
+      _handleUmpConsentFormShow();
+      formError = await _loadAndShowConsentFormIfRequired();
     }
 
     final canRequestAds = await ConsentInformation.instance.canRequestAds();
+    final consentStatus = await ConsentInformation.instance.getConsentStatus();
+    final privacyStatus = await ConsentInformation.instance
+        .getPrivacyOptionsRequirementStatus();
     _logUmp(
       'handled',
       extra:
           'countryCode=$countryCode canRequestAds=$canRequestAds '
-          'consentStatus=$consentStatus ',
+          'consentStatus=$consentStatus privacyStatus=$privacyStatus',
     );
 
-    return UmpConsentResult(
+    final result = UmpConsentResult(
       countryCode: countryCode,
       requiresCmpByLocale: true,
       canRequestAds: canRequestAds,
       consentStatus: consentStatus,
-      privacyOptionsRequirementStatus: PrivacyOptionsRequirementStatus.unknown,
-      formError: null,
+      privacyOptionsRequirementStatus: privacyStatus,
+      formError: formError ?? requestError,
     );
+    _handleUmpConsentCanRequestAds(canRequestAds);
+    _handleUmpConsentFlowComplete(result);
+    return result;
   }
 
   /// 判断当前是否可以请求广告。
@@ -545,6 +584,7 @@ class FlutterPdfAdPlugins {
       onAdRequestStart: _handleAdRequestStart,
       onAdRequestSuccess: _handleAdRequestSuccess,
       onAdRequestFailure: _handleAdRequestFailure,
+      onAdShowStart: _handleAdShowStart,
       onAdShowed: _handleAdShowSuccess,
       onAdClicked: _handleAdClicked,
       onAdClosed: _handleAdClosed,
@@ -670,19 +710,12 @@ class FlutterPdfAdPlugins {
     )) {
       return null;
     }
-    final cooldownResult = _getCooldownBlockReason(
-      boxedPlacement,
-      cachedEntry.info,
-    );
-    if (cooldownResult != null) {
-      return null;
-    }
     return cachedEntry.info;
   }
 
   /// 判断指定广告位当前是否满足展示条件。
   ///
-  /// 仅判断配置、风控和冷却，不要求当前已有缓存。
+  /// 仅判断配置和风控，不要求当前已有缓存。
   Future<bool> canDisplayPlacement<K>(K placement) async {
     final boxedPlacement = placement as Object;
     if (_isFengKongBlocked('check-display', boxedPlacement)) {
@@ -698,10 +731,6 @@ class FlutterPdfAdPlugins {
       return false;
     }
     if (_isFengKongBlocked('check-display-entry', boxedPlacement, info: info)) {
-      return false;
-    }
-    final cooldownResult = _getCooldownBlockReason(boxedPlacement, info);
-    if (cooldownResult != null) {
       return false;
     }
     return true;
@@ -878,21 +907,6 @@ class FlutterPdfAdPlugins {
       );
       return false;
     }
-    final cooldownResult = _getCooldownBlockReason(placement, info);
-    if (cooldownResult != null) {
-      _log(
-        '$action-cooldown-blocked',
-        placement,
-        info,
-        extra:
-            'cooldownType=${cooldownResult.cooldownType} '
-            'remainingSeconds=${cooldownResult.remainingSeconds}',
-      );
-      _logGeneral(
-        '$action-blocked placement=$placement reason=cooldown-blocked',
-      );
-      return false;
-    }
     return true;
   }
 
@@ -947,7 +961,6 @@ class FlutterPdfAdPlugins {
   Future<void> disposeLoader() async {
     final loader = _adLoader;
     _adLoader = null;
-    _lastShownAdRecord = null;
     _interstitialLikeNativePlacements.clear();
     _smallTemplateNativePlacements.clear();
     _largeBannerPlacements.clear();
@@ -956,7 +969,6 @@ class FlutterPdfAdPlugins {
     _showingPlacements.clear();
     _showingAdPlacements.clear();
     _singleFillPlacements.clear();
-    _cooldownExcludedPlacements.clear();
     AdUserGroupManager.instance.onUserGroupResolved = null;
     if (loader != null) {
       await loader.dispose();
@@ -1130,7 +1142,7 @@ class FlutterPdfAdPlugins {
     final filtered = configs
         .where((config) {
           final groups = config.userGroup ?? const <int>[];
-          if (groups.isEmpty) {
+          if (groups.isEmpty || groups.contains(0)) {
             return true;
           }
           if (userGroup == null) {
@@ -1201,6 +1213,25 @@ class FlutterPdfAdPlugins {
     _listener?.onUserGroupResolved(userGroup);
   }
 
+  void _handleUmpConsentFlowStart(
+    String countryCode,
+    bool requiresCmpByLocale,
+  ) {
+    _listener?.onUmpConsentFlowStart(countryCode, requiresCmpByLocale);
+  }
+
+  void _handleUmpConsentFormShow() {
+    _listener?.onUmpConsentFormShow();
+  }
+
+  void _handleUmpConsentFlowComplete(UmpConsentResult result) {
+    _listener?.onUmpConsentFlowComplete(result);
+  }
+
+  void _handleUmpConsentCanRequestAds(bool canRequestAds) {
+    _listener?.onUmpConsentCanRequestAds(canRequestAds);
+  }
+
   void _handleAdRequestStart(Object placement, AdInfoBean info) {
     _listener?.onAdRequestStart(placement, info);
   }
@@ -1209,40 +1240,106 @@ class FlutterPdfAdPlugins {
     Object placement,
     AdInfoBean info,
     String adNetwork,
+    String adSourceName,
   ) {
-    _listener?.onAdRequestSuccess(info, adNetwork);
+    _listener?.onAdRequestSuccess(placement, info, adNetwork, adSourceName);
   }
 
   void _handleAdRequestFailure(
     Object placement,
     AdInfoBean info,
     String failReason,
+    String adNetwork,
+    String adSourceName,
   ) {
-    _listener?.onAdRequestFailure(info, failReason);
+    _listener?.onAdRequestFailure(
+      placement,
+      info,
+      failReason,
+      adNetwork,
+      adSourceName,
+    );
+  }
+
+  void _handleAdShowStart(
+    Object placement,
+    AdInfoBean info,
+    String adNetwork,
+    String adSourceName,
+  ) {
+    _listener?.onAdShowStart(placement, info, adNetwork, adSourceName);
   }
 
   void _handleAdShowSuccess(
     Object placement,
     AdInfoBean info,
     String adNetwork,
+    String adSourceName,
   ) {
-    _listener?.onAdShowSuccess(placement, info, adNetwork);
+    _listener?.onAdShowSuccess(placement, info, adNetwork, adSourceName);
   }
 
   void _handleAdShowFailure(
     Object placement,
     AdInfoBean info,
     String adNetwork,
+    String adSourceName,
   ) {
-    _listener?.onAdShowFailure(placement, info, adNetwork);
+    _listener?.onAdShowFailure(placement, info, adNetwork, adSourceName);
   }
 
-  void _handleAdClicked(Object placement, AdInfoBean info) {
-    _listener?.onAdClicked(placement, info);
+  void _handleAdClicked(
+    Object placement,
+    AdInfoBean info,
+    String adNetwork,
+    String adSourceName,
+  ) {
+    _listener?.onAdClicked(placement, info, adNetwork, adSourceName);
   }
 
-  void _handleAdClosed(Object placement, AdInfoBean info) {
-    _listener?.onAdClosed(placement, info);
+  void _handleAdClosed(
+    Object placement,
+    AdInfoBean info,
+    String adNetwork,
+    String adSourceName,
+  ) {
+    _listener?.onAdClosed(placement, info, adNetwork, adSourceName);
+  }
+
+  void _handleAdShowStartForAd(Object placement, AdInfoBean info, Ad? ad) {
+    _handleAdShowStart(
+      placement,
+      info,
+      _resolveAdNetwork(ad),
+      _resolveAdSourceName(ad),
+    );
+  }
+
+  void _handleAdShowSuccessForAd(Object placement, AdInfoBean info, Ad? ad) {
+    _handleAdShowSuccess(
+      placement,
+      info,
+      _resolveAdNetwork(ad),
+      _resolveAdSourceName(ad),
+    );
+  }
+
+  void _handleAdShowFailureForAd(Object placement, AdInfoBean info, Ad? ad) {
+    _handleAdShowFailure(
+      placement,
+      info,
+      _resolveAdNetwork(ad),
+      _resolveAdSourceName(ad),
+    );
+  }
+
+  void _handleAdClosedForAd(Object placement, AdInfoBean info, Ad? ad) {
+    _handleAdClosed(
+      placement,
+      info,
+      _resolveAdNetwork(ad),
+      _resolveAdSourceName(ad),
+    );
   }
 
   Future<bool> _loadAndShowPlacement(
@@ -1345,11 +1442,7 @@ class FlutterPdfAdPlugins {
         _logGeneral(
           'show-failed placement=$placement reason=cache-expired-skip-reload',
         );
-        _handleAdShowFailure(
-          placement,
-          failedInfo,
-          _resolveAdNetwork(cachedEntry.ad),
-        );
+        _handleAdShowFailureForAd(placement, failedInfo, cachedEntry.ad);
         return false;
       }
       if (_isFengKongBlocked(
@@ -1358,11 +1451,7 @@ class FlutterPdfAdPlugins {
         info: cachedEntry.info,
       )) {
         _logGeneral('show-failed placement=$placement reason=fengkong-blocked');
-        _handleAdShowFailure(
-          placement,
-          cachedEntry.info,
-          _resolveAdNetwork(cachedEntry.ad),
-        );
+        _handleAdShowFailureForAd(placement, cachedEntry.info, cachedEntry.ad);
         return false;
       }
       unawaited(() async {
@@ -1376,30 +1465,7 @@ class FlutterPdfAdPlugins {
       }());
       _log('show-expired', placement, cachedEntry.info);
       _logGeneral('show-failed placement=$placement reason=cache-expired');
-      _handleAdShowFailure(
-        placement,
-        cachedEntry.info,
-        _resolveAdNetwork(cachedEntry.ad),
-      );
-      return false;
-    }
-
-    final cooldownResult = _getCooldownBlockReason(placement, cachedEntry.info);
-    if (cooldownResult != null) {
-      _log(
-        'show-cooldown-blocked',
-        placement,
-        cachedEntry.info,
-        extra:
-            'cooldownType=${cooldownResult.cooldownType} '
-            'remainingSeconds=${cooldownResult.remainingSeconds}',
-      );
-      _logGeneral('show-failed placement=$placement reason=cooldown-blocked');
-      _handleAdShowFailure(
-        placement,
-        cachedEntry.info,
-        _resolveAdNetwork(cachedEntry.ad),
-      );
+      _handleAdShowFailureForAd(placement, cachedEntry.info, cachedEntry.ad);
       return false;
     }
 
@@ -1412,11 +1478,7 @@ class FlutterPdfAdPlugins {
           cachedEntry.info,
           extra: 'adType=native reason=already-showing',
         );
-        _handleAdShowFailure(
-          placement,
-          cachedEntry.info,
-          _resolveAdNetwork(cachedEntry.ad),
-        );
+        _handleAdShowFailureForAd(placement, cachedEntry.info, cachedEntry.ad);
         return false;
       }
       final shouldTrackShowing = _interstitialLikeNativePlacements.contains(
@@ -1432,11 +1494,7 @@ class FlutterPdfAdPlugins {
         );
         _showingPlacements.remove(placement);
         _showingAdPlacements.remove(placement);
-        _handleAdShowFailure(
-          placement,
-          cachedEntry.info,
-          _resolveAdNetwork(cachedEntry.ad),
-        );
+        _handleAdShowFailureForAd(placement, cachedEntry.info, cachedEntry.ad);
         return false;
       }
       if (!context.mounted) {
@@ -1445,11 +1503,7 @@ class FlutterPdfAdPlugins {
         );
         _showingPlacements.remove(placement);
         _showingAdPlacements.remove(placement);
-        _handleAdShowFailure(
-          placement,
-          cachedEntry.info,
-          _resolveAdNetwork(cachedEntry.ad),
-        );
+        _handleAdShowFailureForAd(placement, cachedEntry.info, cachedEntry.ad);
         return false;
       }
 
@@ -1460,12 +1514,11 @@ class FlutterPdfAdPlugins {
           placement,
           cachedEntry,
           onShown: () {
-            _handleAdShowSuccess(
+            _handleAdShowSuccessForAd(
               placement,
               cachedEntry.info,
-              _resolveAdNetwork(cachedEntry.ad),
+              cachedEntry.ad,
             );
-            _recordShownAd(placement, cachedEntry.info);
             _log(
               'show-success',
               placement,
@@ -1483,10 +1536,10 @@ class FlutterPdfAdPlugins {
                 'adType=native '
                 'reason=${shown.failureReason ?? 'unknown'}',
           );
-          _handleAdShowFailure(
+          _handleAdShowFailureForAd(
             placement,
             cachedEntry.info,
-            _resolveAdNetwork(cachedEntry.ad),
+            cachedEntry.ad,
           );
         }
         return shown.shown;
@@ -1503,7 +1556,6 @@ class FlutterPdfAdPlugins {
         onUserEarnedReward: onUserEarnedReward,
       );
       if (shown.shown) {
-        _recordShownAd(placement, cachedEntry.info);
         _log(
           'show-success',
           placement,
@@ -1519,11 +1571,7 @@ class FlutterPdfAdPlugins {
               'adType=${cachedEntry.info.adType} '
               'reason=${shown.failureReason ?? 'unknown'}',
         );
-        _handleAdShowFailure(
-          placement,
-          cachedEntry.info,
-          _resolveAdNetwork(cachedEntry.ad),
-        );
+        _handleAdShowFailureForAd(placement, cachedEntry.info, cachedEntry.ad);
       }
       return shown.shown;
     } finally {
@@ -1622,84 +1670,16 @@ class FlutterPdfAdPlugins {
   }
 
   String _resolveAdNetwork(Ad? ad) {
-    return ad?.responseInfo?.loadedAdapterResponseInfo?.adSourceName ?? 'Admob';
+    final adNetwork = ad?.responseInfo?.loadedAdapterResponseInfo?.adSourceName
+        .trim();
+    if (adNetwork == null || adNetwork.isEmpty) {
+      return 'Admob';
+    }
+    return adNetwork;
   }
 
-  _CooldownBlockReason? _getCooldownBlockReason(
-    Object placement,
-    AdInfoBean info,
-  ) {
-    final adType = info.parsedAdType;
-    if (adType == null) {
-      return null;
-    }
-
-    if (!_shouldApplyCooldown(placement, adType)) {
-      return null;
-    }
-
-    final lastShown = _lastShownAdRecord;
-    if (lastShown == null) {
-      return null;
-    }
-
-    final now = DateTime.now();
-    if (info.adId != null && info.adId == lastShown.adId) {
-      final inventoryUntil = lastShown.shownAt.add(
-        Duration(seconds: _inventoryCooldownSeconds),
-      );
-      if (now.isBefore(inventoryUntil)) {
-        return _CooldownBlockReason(
-          cooldownType: 'kc_cd',
-          remainingSeconds: inventoryUntil.difference(now).inSeconds + 1,
-        );
-      }
-    }
-
-    if (lastShown.adType != adType) {
-      final productUntil = lastShown.shownAt.add(
-        Duration(seconds: _productCooldownSeconds),
-      );
-      if (now.isBefore(productUntil)) {
-        return _CooldownBlockReason(
-          cooldownType: 'pr_cd',
-          remainingSeconds: productUntil.difference(now).inSeconds + 1,
-        );
-      }
-    }
-
-    return null;
-  }
-
-  void _recordShownAd(Object placement, AdInfoBean info) {
-    final adType = info.parsedAdType;
-    if (adType == null) {
-      return;
-    }
-
-    if (!_shouldApplyCooldown(placement, adType)) {
-      return;
-    }
-
-    _lastShownAdRecord = _LastShownAdRecord(
-      adId: info.adId,
-      adType: adType,
-      shownAt: DateTime.now(),
-    );
-  }
-
-  bool _shouldApplyNativeCooldown(Object placement) {
-    return _interstitialLikeNativePlacements.contains(placement);
-  }
-
-  bool _shouldApplyCooldown(Object placement, AdType adType) {
-    if (_cooldownExcludedPlacements.contains(placement)) {
-      return false;
-    }
-    if (adType == AdType.native) {
-      return _shouldApplyNativeCooldown(placement);
-    }
-    return true;
+  String _resolveAdSourceName(Ad? ad) {
+    return _resolveAdNetwork(ad);
   }
 
   Future<_ShowResult> _showNativeAd(
@@ -1727,6 +1707,7 @@ class FlutterPdfAdPlugins {
     }
 
     if (interstitialLike) {
+      _handleAdShowStartForAd(placement, entry.info, entry.ad);
       final routeFuture = navigator.push(
         MaterialPageRoute<void>(
           builder: (_) => _NativeInterstitialPage(ad: ad),
@@ -1736,6 +1717,7 @@ class FlutterPdfAdPlugins {
       onShown();
       await routeFuture;
     } else {
+      _handleAdShowStartForAd(placement, entry.info, entry.ad);
       final dialogFuture = showDialog<void>(
         context: navigator.context,
         useRootNavigator: true,
@@ -1746,7 +1728,7 @@ class FlutterPdfAdPlugins {
     }
 
     await loader.consumeShownEntryAfterClose(placement, entry);
-    _handleAdClosed(placement, entry.info);
+    _handleAdClosedForAd(placement, entry.info, entry.ad);
     _log('native-closed-consume', placement, entry.info);
     return const _ShowResult.success();
   }
@@ -1759,9 +1741,7 @@ class FlutterPdfAdPlugins {
     final buffer = StringBuffer()
       ..write('[FlutterPdfAdPlugins] $stage ')
       ..write('placement=$placement ')
-      ..write('adInfo={${info?.logSummary}} ')
-      ..write('pr_cd=$_productCooldownSeconds ')
-      ..write('kc_cd=$_inventoryCooldownSeconds');
+      ..write('adInfo={${info?.logSummary}}');
 
     if (extra != null && extra.isNotEmpty) {
       buffer
@@ -1855,28 +1835,6 @@ class FlutterPdfAdPlugins {
     }
     return _fengKongLogic!();
   }
-}
-
-class _LastShownAdRecord {
-  const _LastShownAdRecord({
-    required this.adId,
-    required this.adType,
-    required this.shownAt,
-  });
-
-  final String? adId;
-  final AdType adType;
-  final DateTime shownAt;
-}
-
-class _CooldownBlockReason {
-  const _CooldownBlockReason({
-    required this.cooldownType,
-    required this.remainingSeconds,
-  });
-
-  final String cooldownType;
-  final int remainingSeconds;
 }
 
 class _ShowResult {

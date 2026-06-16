@@ -13,6 +13,7 @@ import '../enum/ad_type.dart';
 import 'loaded_ad_cache_entry.dart';
 
 const Duration _requestFallbackDelay = Duration(seconds: 3);
+const String _fallbackAdNetwork = 'Admob';
 
 class FlutterPdfAdLoader<K> {
   FlutterPdfAdLoader({
@@ -28,13 +29,49 @@ class FlutterPdfAdLoader<K> {
     NativeTemplateStyle? Function(K placement)? nativeTemplateStyleBuilder,
     void Function(K placement, LoadedAdCacheEntry entry)? onPlacementLoaded,
     void Function(K placement, AdInfoBean info)? onAdRequestStart,
-    void Function(K placement, AdInfoBean info, String adNetwork)?
+    void Function(
+      K placement,
+      AdInfoBean info,
+      String adNetwork,
+      String adSourceName,
+    )?
     onAdRequestSuccess,
-    void Function(K placement, AdInfoBean info, String failReason)?
+    void Function(
+      K placement,
+      AdInfoBean info,
+      String failReason,
+      String adNetwork,
+      String adSourceName,
+    )?
     onAdRequestFailure,
-    void Function(K placement, AdInfoBean info, String adNetwork)? onAdShowed,
-    void Function(K placement, AdInfoBean info)? onAdClicked,
-    void Function(K placement, AdInfoBean info)? onAdClosed,
+    void Function(
+      K placement,
+      AdInfoBean info,
+      String adNetwork,
+      String adSourceName,
+    )?
+    onAdShowStart,
+    void Function(
+      K placement,
+      AdInfoBean info,
+      String adNetwork,
+      String adSourceName,
+    )?
+    onAdShowed,
+    void Function(
+      K placement,
+      AdInfoBean info,
+      String adNetwork,
+      String adSourceName,
+    )?
+    onAdClicked,
+    void Function(
+      K placement,
+      AdInfoBean info,
+      String adNetwork,
+      String adSourceName,
+    )?
+    onAdClosed,
     String Function(K placement)? placementLabelBuilder,
     void Function(
       K placement,
@@ -59,6 +96,7 @@ class FlutterPdfAdLoader<K> {
        _onAdRequestStart = onAdRequestStart,
        _onAdRequestSuccess = onAdRequestSuccess,
        _onAdRequestFailure = onAdRequestFailure,
+       _onAdShowStart = onAdShowStart,
        _onAdShowed = onAdShowed,
        _onAdClicked = onAdClicked,
        _onAdClosed = onAdClosed,
@@ -79,14 +117,49 @@ class FlutterPdfAdLoader<K> {
   final void Function(K placement, LoadedAdCacheEntry entry)?
   _onPlacementLoaded;
   final void Function(K placement, AdInfoBean info)? _onAdRequestStart;
-  final void Function(K placement, AdInfoBean info, String adNetwork)?
+  final void Function(
+    K placement,
+    AdInfoBean info,
+    String adNetwork,
+    String adSourceName,
+  )?
   _onAdRequestSuccess;
-  final void Function(K placement, AdInfoBean info, String failReason)?
+  final void Function(
+    K placement,
+    AdInfoBean info,
+    String failReason,
+    String adNetwork,
+    String adSourceName,
+  )?
   _onAdRequestFailure;
-  final void Function(K placement, AdInfoBean info, String adNetwork)?
+  final void Function(
+    K placement,
+    AdInfoBean info,
+    String adNetwork,
+    String adSourceName,
+  )?
+  _onAdShowStart;
+  final void Function(
+    K placement,
+    AdInfoBean info,
+    String adNetwork,
+    String adSourceName,
+  )?
   _onAdShowed;
-  final void Function(K placement, AdInfoBean info)? _onAdClicked;
-  final void Function(K placement, AdInfoBean info)? _onAdClosed;
+  final void Function(
+    K placement,
+    AdInfoBean info,
+    String adNetwork,
+    String adSourceName,
+  )?
+  _onAdClicked;
+  final void Function(
+    K placement,
+    AdInfoBean info,
+    String adNetwork,
+    String adSourceName,
+  )?
+  _onAdClosed;
   final String Function(K placement)? _placementLabelBuilder;
   final void Function(
     K placement,
@@ -254,10 +327,10 @@ class FlutterPdfAdLoader<K> {
       final completer = Completer<ShowAdResult>();
       ad.fullScreenContentCallback = FullScreenContentCallback<AppOpenAd>(
         onAdShowedFullScreenContent: (_) {
-          _onAdShowed?.call(placement, entry.info, _resolveAdNetwork(entry.ad));
+          _dispatchAdShowed(placement, entry.info, entry.ad);
         },
         onAdDismissedFullScreenContent: (_) async {
-          _onAdClosed?.call(placement, entry.info);
+          _dispatchAdClosed(placement, entry.info, entry.ad);
           await _consumeShownEntryAfterShow(placement, entry, trigger: 'close');
           if (!completer.isCompleted) {
             completer.complete(const ShowAdResult.success());
@@ -280,10 +353,11 @@ class FlutterPdfAdLoader<K> {
           );
         },
         onAdClicked: (_) {
-          _onAdClicked?.call(placement, entry.info);
+          _dispatchAdClicked(placement, entry.info, entry.ad);
         },
       );
       try {
+        _dispatchAdShowStart(placement, entry.info, entry.ad);
         await ad.show();
       } catch (error) {
         return ShowAdResult.failure('exception=$error');
@@ -295,10 +369,10 @@ class FlutterPdfAdLoader<K> {
       final completer = Completer<ShowAdResult>();
       ad.fullScreenContentCallback = FullScreenContentCallback<InterstitialAd>(
         onAdShowedFullScreenContent: (_) {
-          _onAdShowed?.call(placement, entry.info, _resolveAdNetwork(entry.ad));
+          _dispatchAdShowed(placement, entry.info, entry.ad);
         },
         onAdDismissedFullScreenContent: (_) async {
-          _onAdClosed?.call(placement, entry.info);
+          _dispatchAdClosed(placement, entry.info, entry.ad);
           await _consumeShownEntryAfterShow(placement, entry, trigger: 'close');
           if (!completer.isCompleted) {
             completer.complete(const ShowAdResult.success());
@@ -321,10 +395,11 @@ class FlutterPdfAdLoader<K> {
           );
         },
         onAdClicked: (_) {
-          _onAdClicked?.call(placement, entry.info);
+          _dispatchAdClicked(placement, entry.info, entry.ad);
         },
       );
       try {
+        _dispatchAdShowStart(placement, entry.info, entry.ad);
         await ad.show();
       } catch (error) {
         return ShowAdResult.failure('exception=$error');
@@ -336,10 +411,10 @@ class FlutterPdfAdLoader<K> {
       final completer = Completer<ShowAdResult>();
       ad.fullScreenContentCallback = FullScreenContentCallback<RewardedAd>(
         onAdShowedFullScreenContent: (_) {
-          _onAdShowed?.call(placement, entry.info, _resolveAdNetwork(entry.ad));
+          _dispatchAdShowed(placement, entry.info, entry.ad);
         },
         onAdDismissedFullScreenContent: (_) async {
-          _onAdClosed?.call(placement, entry.info);
+          _dispatchAdClosed(placement, entry.info, entry.ad);
           await _consumeShownEntryAfterShow(placement, entry, trigger: 'close');
           if (!completer.isCompleted) {
             completer.complete(const ShowAdResult.success());
@@ -362,10 +437,11 @@ class FlutterPdfAdLoader<K> {
           );
         },
         onAdClicked: (_) {
-          _onAdClicked?.call(placement, entry.info);
+          _dispatchAdClicked(placement, entry.info, entry.ad);
         },
       );
       try {
+        _dispatchAdShowStart(placement, entry.info, entry.ad);
         await ad.show(
           onUserEarnedReward:
               onUserEarnedReward ??
@@ -510,7 +586,12 @@ class FlutterPdfAdLoader<K> {
 
       final ad = result.ad;
       if (ad == null) {
-        _logLoadFailure(placement, config, reason: result.failureReason);
+        _logLoadFailure(
+          placement,
+          config,
+          reason: result.failureReason,
+          adNetwork: result.adNetwork,
+        );
         if (index + 1 < sortedConfigs.length) {
           unawaited(startLoadAt(index + 1));
         }
@@ -633,9 +714,9 @@ class FlutterPdfAdLoader<K> {
   ) async {
     final completer = Completer<_AdLoadResult>();
 
-    void completeFailure(String reason) {
+    void completeFailure(String reason, {String? adNetwork}) {
       if (!completer.isCompleted) {
-        completer.complete(_AdLoadResult.failure(reason));
+        completer.complete(_AdLoadResult.failure(reason, adNetwork: adNetwork));
       }
     }
 
@@ -655,6 +736,7 @@ class FlutterPdfAdLoader<K> {
           onAdFailedToLoad: (error) {
             completeFailure(
               'code=${error.code} message=${error.message} domain=${error.domain}',
+              adNetwork: _resolveResponseInfoAdNetwork(error.responseInfo),
             );
           },
         ),
@@ -672,9 +754,9 @@ class FlutterPdfAdLoader<K> {
   ) async {
     final completer = Completer<_AdLoadResult>();
 
-    void completeFailure(String reason) {
+    void completeFailure(String reason, {String? adNetwork}) {
       if (!completer.isCompleted) {
-        completer.complete(_AdLoadResult.failure(reason));
+        completer.complete(_AdLoadResult.failure(reason, adNetwork: adNetwork));
       }
     }
 
@@ -694,6 +776,7 @@ class FlutterPdfAdLoader<K> {
           onAdFailedToLoad: (error) {
             completeFailure(
               'code=${error.code} message=${error.message} domain=${error.domain}',
+              adNetwork: _resolveResponseInfoAdNetwork(error.responseInfo),
             );
           },
         ),
@@ -711,9 +794,9 @@ class FlutterPdfAdLoader<K> {
   ) async {
     final completer = Completer<_AdLoadResult>();
 
-    void completeFailure(String reason) {
+    void completeFailure(String reason, {String? adNetwork}) {
       if (!completer.isCompleted) {
-        completer.complete(_AdLoadResult.failure(reason));
+        completer.complete(_AdLoadResult.failure(reason, adNetwork: adNetwork));
       }
     }
 
@@ -733,6 +816,7 @@ class FlutterPdfAdLoader<K> {
           onAdFailedToLoad: (error) {
             completeFailure(
               'code=${error.code} message=${error.message} domain=${error.domain}',
+              adNetwork: _resolveResponseInfoAdNetwork(error.responseInfo),
             );
           },
         ),
@@ -750,9 +834,9 @@ class FlutterPdfAdLoader<K> {
   ) async {
     final completer = Completer<_AdLoadResult>();
 
-    void completeFailure(String reason) {
+    void completeFailure(String reason, {String? adNetwork}) {
       if (!completer.isCompleted) {
-        completer.complete(_AdLoadResult.failure(reason));
+        completer.complete(_AdLoadResult.failure(reason, adNetwork: adNetwork));
       }
     }
 
@@ -768,13 +852,15 @@ class FlutterPdfAdLoader<K> {
           completer.complete(_AdLoadResult.success(ad));
         },
         onAdFailedToLoad: (ad, error) async {
+          final adNetwork = _resolveAdNetwork(ad);
           await ad.dispose();
           completeFailure(
             'code=${error.code} message=${error.message} domain=${error.domain}',
+            adNetwork: adNetwork,
           );
         },
-        onAdClicked: (_) {
-          _onAdClicked?.call(placement, info);
+        onAdClicked: (ad) {
+          _dispatchAdClicked(placement, info, ad);
         },
         onPaidEvent: _buildOnPaidEvent(placement, info),
       ),
@@ -800,9 +886,9 @@ class FlutterPdfAdLoader<K> {
   ) async {
     final completer = Completer<_AdLoadResult>();
 
-    void completeFailure(String reason) {
+    void completeFailure(String reason, {String? adNetwork}) {
       if (!completer.isCompleted) {
-        completer.complete(_AdLoadResult.failure(reason));
+        completer.complete(_AdLoadResult.failure(reason, adNetwork: adNetwork));
       }
     }
 
@@ -818,13 +904,15 @@ class FlutterPdfAdLoader<K> {
           completer.complete(_AdLoadResult.success(ad));
         },
         onAdFailedToLoad: (ad, error) async {
+          final adNetwork = _resolveAdNetwork(ad);
           await ad.dispose();
           completeFailure(
             'code=${error.code} message=${error.message} domain=${error.domain}',
+            adNetwork: adNetwork,
           );
         },
-        onAdClicked: (_) {
-          _onAdClicked?.call(placement, info);
+        onAdClicked: (ad) {
+          _dispatchAdClicked(placement, info, ad);
         },
         onPaidEvent: _buildOnPaidEvent(placement, info),
       ),
@@ -861,8 +949,19 @@ class FlutterPdfAdLoader<K> {
     _log('load-start', placement, info: info);
   }
 
-  void _logLoadFailure(K placement, AdInfoBean info, {String? reason}) {
-    _onAdRequestFailure?.call(placement, info, reason ?? 'unknown');
+  void _logLoadFailure(
+    K placement,
+    AdInfoBean info, {
+    String? reason,
+    String? adNetwork,
+  }) {
+    _onAdRequestFailure?.call(
+      placement,
+      info,
+      reason ?? 'unknown',
+      adNetwork ?? _fallbackAdNetwork,
+      adNetwork ?? _fallbackAdNetwork,
+    );
     _log('load-failed', placement, info: info, extra: reason);
   }
 
@@ -871,10 +970,12 @@ class FlutterPdfAdLoader<K> {
     LoadedAdCacheEntry entry, {
     required int cacheCount,
   }) {
+    final adSourceName = _resolveAdNetwork(entry.ad);
     _onAdRequestSuccess?.call(
       placement,
       entry.info,
-      _resolveAdNetwork(entry.ad),
+      adSourceName,
+      adSourceName,
     );
     _log(
       'load-success',
@@ -890,7 +991,43 @@ class FlutterPdfAdLoader<K> {
   }
 
   String _resolveAdNetwork(Ad? ad) {
-    return ad?.responseInfo?.loadedAdapterResponseInfo?.adSourceName ?? 'Admob';
+    return _normalizeAdNetwork(
+      ad?.responseInfo?.loadedAdapterResponseInfo?.adSourceName,
+    );
+  }
+
+  String _resolveResponseInfoAdNetwork(ResponseInfo? responseInfo) {
+    return _normalizeAdNetwork(
+      responseInfo?.loadedAdapterResponseInfo?.adSourceName,
+    );
+  }
+
+  String _normalizeAdNetwork(String? adNetwork) {
+    final normalized = adNetwork?.trim();
+    if (normalized == null || normalized.isEmpty) {
+      return _fallbackAdNetwork;
+    }
+    return normalized;
+  }
+
+  void _dispatchAdShowStart(K placement, AdInfoBean info, Ad ad) {
+    final adSourceName = _resolveAdNetwork(ad);
+    _onAdShowStart?.call(placement, info, adSourceName, adSourceName);
+  }
+
+  void _dispatchAdShowed(K placement, AdInfoBean info, Ad ad) {
+    final adSourceName = _resolveAdNetwork(ad);
+    _onAdShowed?.call(placement, info, adSourceName, adSourceName);
+  }
+
+  void _dispatchAdClicked(K placement, AdInfoBean info, Ad ad) {
+    final adSourceName = _resolveAdNetwork(ad);
+    _onAdClicked?.call(placement, info, adSourceName, adSourceName);
+  }
+
+  void _dispatchAdClosed(K placement, AdInfoBean info, Ad ad) {
+    final adSourceName = _resolveAdNetwork(ad);
+    _onAdClosed?.call(placement, info, adSourceName, adSourceName);
   }
 
   void _logCacheExpired(K placement, {required String trigger}) {
@@ -998,14 +1135,16 @@ class FlutterPdfAdLoader<K> {
 }
 
 class _AdLoadResult {
-  const _AdLoadResult._({this.ad, this.failureReason});
+  const _AdLoadResult._({this.ad, this.failureReason, this.adNetwork});
 
   const _AdLoadResult.success(Ad ad) : this._(ad: ad);
 
-  const _AdLoadResult.failure(String reason) : this._(failureReason: reason);
+  const _AdLoadResult.failure(String reason, {String? adNetwork})
+    : this._(failureReason: reason, adNetwork: adNetwork);
 
   final Ad? ad;
   final String? failureReason;
+  final String? adNetwork;
 }
 
 class ShowAdResult {
