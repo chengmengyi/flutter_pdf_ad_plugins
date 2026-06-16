@@ -204,7 +204,7 @@ class FlutterPdfAdPlugins {
   ///
   /// 这个方法不会调用 [MobileAds.initialize]。如果业务需要显式初始化
   /// Google Mobile Ads SDK，请先设置监听器，再调用 [initializeAdmob]。
-  Future<void> initAdmob({
+  Future<void> initPlugins({
     required String distinctId,
     required FengKongLogic fengKongLogic,
     String? smallNativeAdLayoutName,
