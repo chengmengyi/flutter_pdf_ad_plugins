@@ -42,6 +42,12 @@ abstract class FlutterPdfAdListener {
   /// 进入 UMP 隐私协议流程时回调。
   void onUmpConsentFlowStart(String countryCode, bool requiresCmpByLocale) {}
 
+  /// UMP 请求开始时回调。
+  void onUmpFormRequest() {}
+
+  /// UMP 表单加载流程开始时回调。
+  void onUmpFormLoad() {}
+
   /// 准备调用 UMP 隐私协议表单加载/展示逻辑时回调。
   void onUmpConsentFormShow() {}
 
@@ -208,11 +214,19 @@ class FlutterPdfAdPlugins {
     );
     AdUserGroupManager.instance.onUserGroupResolved = _notifyUserGroupResolved;
     unawaited(AdUserGroupManager.instance.getUserGroup());
-    await MobileAds.instance.initialize();
-    _isAdmobInitialized = true;
-    _notifyAdmobInitialized();
+    unawaited(_initialize());
     unawaited(AdAdjustManager.instance.restore());
     unawaited(AdReferrerManager.instance.restore());
+  }
+
+  Future<void> _initialize() async {
+    try {
+      await MobileAds.instance.initialize();
+      _isAdmobInitialized = true;
+      _notifyAdmobInitialized();
+    } catch (error) {
+      _logGeneral('admob-initialize-failed error=$error');
+    }
   }
 
   /// 更新外部 Adjust 归因结果。
@@ -435,6 +449,7 @@ class FlutterPdfAdPlugins {
     final countryCode = getCurrentCountryCode();
     final requiresCmpByLocale = _cmpCountryCodes.contains(countryCode);
     _handleUmpConsentFlowStart(countryCode, requiresCmpByLocale);
+    _handleUmpFormRequest();
 
     if (!requiresCmpByLocale) {
       final consentStatus = fetchStatusSnapshot
@@ -466,6 +481,7 @@ class FlutterPdfAdPlugins {
     }
 
     final requestParameters = params ?? ConsentRequestParameters();
+    _handleUmpFormLoad();
     final requestError = await _requestConsentInfoUpdate(requestParameters);
 
     FormError? formError;
@@ -1218,6 +1234,14 @@ class FlutterPdfAdPlugins {
     bool requiresCmpByLocale,
   ) {
     _listener?.onUmpConsentFlowStart(countryCode, requiresCmpByLocale);
+  }
+
+  void _handleUmpFormRequest() {
+    _listener?.onUmpFormRequest();
+  }
+
+  void _handleUmpFormLoad() {
+    _listener?.onUmpFormLoad();
   }
 
   void _handleUmpConsentFormShow() {
