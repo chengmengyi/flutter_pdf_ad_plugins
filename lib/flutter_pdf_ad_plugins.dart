@@ -196,7 +196,6 @@ class FlutterPdfAdPlugins {
   final Map<Object, String> _userGroupFilterLogCache = <Object, String>{};
   String? _lastFacebookUserCheckLogSignature;
   FlutterPdfAdListener? _listener;
-  bool _isAdmobInitialized = false;
   final Set<String> _cmpCountryCodes = <String>{..._defaultCmpCountryCodes};
   FengKongLogic? _fengKongLogic;
   String? _smallNativeAdLayoutName;
@@ -214,15 +213,13 @@ class FlutterPdfAdPlugins {
     );
     AdUserGroupManager.instance.onUserGroupResolved = _notifyUserGroupResolved;
     unawaited(AdUserGroupManager.instance.getUserGroup());
-    unawaited(_initialize());
     unawaited(AdAdjustManager.instance.restore());
     unawaited(AdReferrerManager.instance.restore());
   }
 
-  Future<void> _initialize() async {
+  Future<void> initializeAdmob() async {
     try {
       await MobileAds.instance.initialize();
-      _isAdmobInitialized = true;
       _notifyAdmobInitialized();
     } catch (error) {
       _logGeneral('admob-initialize-failed error=$error');
@@ -393,10 +390,6 @@ class FlutterPdfAdPlugins {
   /// 设置广告事件监听器。
   void setListener(FlutterPdfAdListener? listener) {
     _listener = listener;
-    if (listener != null && _isAdmobInitialized) {
-      _logGeneral('listener-replay onAdmobInitialized');
-      listener.onAdmobInitialized();
-    }
   }
 
   /// 判断当前是否有广告正在展示。
