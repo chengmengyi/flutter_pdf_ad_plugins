@@ -99,6 +99,7 @@ abstract class FlutterPdfAdListener {
     AdInfoBean info,
     String adNetwork,
     String adSourceName,
+    String errorMessage,
   ) {}
 
   /// 广告点击时回调。
@@ -1320,8 +1321,15 @@ class FlutterPdfAdPlugins {
     AdInfoBean info,
     String adNetwork,
     String adSourceName,
+    String errorMessage,
   ) {
-    _listener?.onAdShowFailure(placement, info, adNetwork, adSourceName);
+    _listener?.onAdShowFailure(
+      placement,
+      info,
+      adNetwork,
+      adSourceName,
+      errorMessage,
+    );
   }
 
   void _handleAdClicked(
@@ -1360,12 +1368,18 @@ class FlutterPdfAdPlugins {
     );
   }
 
-  void _handleAdShowFailureForAd(Object placement, AdInfoBean info, Ad? ad) {
+  void _handleAdShowFailureForAd(
+    Object placement,
+    AdInfoBean info,
+    Ad? ad,
+    String errorMessage,
+  ) {
     _handleAdShowFailure(
       placement,
       info,
       _resolveAdNetwork(ad),
       _resolveAdSourceName(ad),
+      errorMessage,
     );
   }
 
@@ -1478,7 +1492,12 @@ class FlutterPdfAdPlugins {
         _logGeneral(
           'show-failed placement=$placement reason=cache-expired-skip-reload',
         );
-        _handleAdShowFailureForAd(placement, failedInfo, cachedEntry.ad);
+        _handleAdShowFailureForAd(
+          placement,
+          failedInfo,
+          cachedEntry.ad,
+          'cache-expired-skip-reload',
+        );
         return false;
       }
       if (_isFengKongBlocked(
@@ -1487,7 +1506,12 @@ class FlutterPdfAdPlugins {
         info: cachedEntry.info,
       )) {
         _logGeneral('show-failed placement=$placement reason=fengkong-blocked');
-        _handleAdShowFailureForAd(placement, cachedEntry.info, cachedEntry.ad);
+        _handleAdShowFailureForAd(
+          placement,
+          cachedEntry.info,
+          cachedEntry.ad,
+          'fengkong-blocked',
+        );
         return false;
       }
       unawaited(() async {
@@ -1501,7 +1525,12 @@ class FlutterPdfAdPlugins {
       }());
       _log('show-expired', placement, cachedEntry.info);
       _logGeneral('show-failed placement=$placement reason=cache-expired');
-      _handleAdShowFailureForAd(placement, cachedEntry.info, cachedEntry.ad);
+      _handleAdShowFailureForAd(
+        placement,
+        cachedEntry.info,
+        cachedEntry.ad,
+        'cache-expired',
+      );
       return false;
     }
 
@@ -1514,7 +1543,12 @@ class FlutterPdfAdPlugins {
           cachedEntry.info,
           extra: 'adType=native reason=already-showing',
         );
-        _handleAdShowFailureForAd(placement, cachedEntry.info, cachedEntry.ad);
+        _handleAdShowFailureForAd(
+          placement,
+          cachedEntry.info,
+          cachedEntry.ad,
+          'already-showing',
+        );
         return false;
       }
       final shouldTrackShowing = _interstitialLikeNativePlacements.contains(
@@ -1530,7 +1564,12 @@ class FlutterPdfAdPlugins {
         );
         _showingPlacements.remove(placement);
         _showingAdPlacements.remove(placement);
-        _handleAdShowFailureForAd(placement, cachedEntry.info, cachedEntry.ad);
+        _handleAdShowFailureForAd(
+          placement,
+          cachedEntry.info,
+          cachedEntry.ad,
+          'native-missing-context',
+        );
         return false;
       }
       if (!context.mounted) {
@@ -1539,7 +1578,12 @@ class FlutterPdfAdPlugins {
         );
         _showingPlacements.remove(placement);
         _showingAdPlacements.remove(placement);
-        _handleAdShowFailureForAd(placement, cachedEntry.info, cachedEntry.ad);
+        _handleAdShowFailureForAd(
+          placement,
+          cachedEntry.info,
+          cachedEntry.ad,
+          'context-unmounted',
+        );
         return false;
       }
 
@@ -1576,6 +1620,7 @@ class FlutterPdfAdPlugins {
             placement,
             cachedEntry.info,
             cachedEntry.ad,
+            shown.failureReason ?? 'unknown',
           );
         }
         return shown.shown;
@@ -1607,7 +1652,12 @@ class FlutterPdfAdPlugins {
               'adType=${cachedEntry.info.adType} '
               'reason=${shown.failureReason ?? 'unknown'}',
         );
-        _handleAdShowFailureForAd(placement, cachedEntry.info, cachedEntry.ad);
+        _handleAdShowFailureForAd(
+          placement,
+          cachedEntry.info,
+          cachedEntry.ad,
+          shown.failureReason ?? 'unknown',
+        );
       }
       return shown.shown;
     } finally {

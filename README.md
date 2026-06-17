@@ -379,6 +379,17 @@ class AdListener extends FlutterPdfAdListener {
   }
 
   @override
+  void onAdShowFailure(
+    Object placement,
+    AdInfoBean info,
+    String adNetwork,
+    String adSourceName,
+    String errorMessage,
+  ) {
+    debugPrint('show failed placement=$placement error=$errorMessage');
+  }
+
+  @override
   void onAdPaidEvent(
     Object placement,
     double revenue,
