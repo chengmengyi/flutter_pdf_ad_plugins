@@ -12,7 +12,6 @@ import '../bean/ad_info_bean.dart';
 import '../enum/ad_type.dart';
 import 'loaded_ad_cache_entry.dart';
 
-const Duration _requestFallbackDelay = Duration(seconds: 3);
 const String _fallbackAdNetwork = 'Admob';
 
 class FlutterPdfAdLoader<K> {
@@ -177,6 +176,7 @@ class FlutterPdfAdLoader<K> {
   final Map<K, int> _activeRequestCounts = {};
   final Set<K> _skipReloadAfterClosePlacements = <K>{};
   final Set<K> _singleFillPlacements = <K>{};
+  Duration? _requestFallbackDelay;
 
   Map<K, List<AdInfoBean>> get configs => Map.unmodifiable(_configs);
 
@@ -210,6 +210,10 @@ class FlutterPdfAdLoader<K> {
     _singleFillPlacements
       ..clear()
       ..addAll(placements);
+  }
+
+  void updateRequestFallbackDelay(Duration? delay) {
+    _requestFallbackDelay = delay;
   }
 
   Future<LoadedAdCacheEntry?> loadPlacement(
@@ -564,9 +568,11 @@ class FlutterPdfAdLoader<K> {
       _activeRequestCounts[placement] =
           (_activeRequestCounts[placement] ?? 0) + 1;
 
-      if (!_singleFillPlacements.contains(placement) &&
+      final requestFallbackDelay = _requestFallbackDelay;
+      if (requestFallbackDelay != null &&
+          !_singleFillPlacements.contains(placement) &&
           index + 1 < sortedConfigs.length) {
-        final timer = Timer(_requestFallbackDelay, () {
+        final timer = Timer(requestFallbackDelay, () {
           if (completedIndexes.contains(index)) {
             return;
           }

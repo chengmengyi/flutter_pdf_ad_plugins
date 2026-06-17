@@ -194,6 +194,7 @@ class FlutterPdfAdPlugins {
   final Set<Object> _showingPlacements = <Object>{};
   final Set<Object> _showingAdPlacements = <Object>{};
   final Map<Object, String> _userGroupFilterLogCache = <Object, String>{};
+  Duration? _adRequestTimeout;
   String? _lastFacebookUserCheckLogSignature;
   FlutterPdfAdListener? _listener;
   final Set<String> _cmpCountryCodes = <String>{..._defaultCmpCountryCodes};
@@ -320,6 +321,15 @@ class FlutterPdfAdPlugins {
     );
   }
 
+  /// 配置同一广告位多层级请求的超时时间。
+  ///
+  /// 未配置或传入小于等于 0 的秒数时，不启用定时超时，只在 SDK 请求失败后
+  /// 请求下一层广告；传入正数时，当前层超过该时间未返回就会请求下一层。
+  void updateAdRequestTimeoutSeconds(int seconds) {
+    _adRequestTimeout = seconds <= 0 ? null : Duration(seconds: seconds);
+    _adLoader?.updateRequestFallbackDelay(_adRequestTimeout);
+  }
+
   /// 标记哪些原生广告位按插屏逻辑处理。
   void updateInterstitialLikeNativePlacements<K>(Iterable<K> placements) {
     _interstitialLikeNativePlacements
@@ -388,6 +398,7 @@ class FlutterPdfAdPlugins {
       ..clear()
       ..addAll(placements.map((placement) => placement as Object));
     _adLoader?.updateSingleFillPlacements(_singleFillPlacements);
+    _adLoader?.updateRequestFallbackDelay(_adRequestTimeout);
   }
 
   /// 更新收益阈值事件配置。

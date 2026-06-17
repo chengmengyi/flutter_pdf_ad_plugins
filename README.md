@@ -254,6 +254,9 @@ void configAdvancedOptions() {
   ad.updateSkipReloadAfterClosePlacements([
     AdPlacement.reward,
   ]);
+
+  // 多层级广告请求超时；不配置时只在 SDK 返回失败后请求下一层
+  ad.updateAdRequestTimeoutSeconds(3);
 }
 ```
 
@@ -499,6 +502,7 @@ await FlutterPdfAdPlugins.instance.disposeLoader();
 - `showCachedAd` 和 `loadAndShow` 在展示 Native 弹窗时需要传 `context`
 - 如果业务依赖 `onAdmobInitialized`，请先 `setListener`，再调用 `initializeAdmob`
 - `MobileAds.initialize` 可能较慢；不想阻塞启动时可以自行 `unawaited(FlutterPdfAdPlugins.instance.initializeAdmob())`
+- `updateAdRequestTimeoutSeconds` 不配置或传入 `0` 时，只在 SDK 请求失败后请求下一层；传入正数时，当前层超时会请求下一层
 - 插件不再内置广告展示冷却判断，冷却逻辑请放在业务项目里处理
 - `takeCachedAdWidget` 适合列表流消费，取出后会从缓存中移除
 - `buildCachedAdWidget` 只是读取当前缓存，不会移除缓存
