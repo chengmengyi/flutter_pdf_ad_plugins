@@ -194,6 +194,7 @@ class FlutterPdfAdPlugins {
       <Object, Set<VoidCallback>>{};
   final Set<Object> _showingPlacements = <Object>{};
   final Set<Object> _showingAdPlacements = <Object>{};
+  final Set<int> _notifiedShowSuccessAdIds = <int>{};
   final Map<Object, String> _userGroupFilterLogCache = <Object, String>{};
   Duration? _adRequestTimeout;
   String? _lastFacebookUserCheckLogSignature;
@@ -997,6 +998,7 @@ class FlutterPdfAdPlugins {
     _placementLoadedListeners.clear();
     _showingPlacements.clear();
     _showingAdPlacements.clear();
+    _notifiedShowSuccessAdIds.clear();
     _singleFillPlacements.clear();
     AdUserGroupManager.instance.onUserGroupResolved = null;
     if (loader != null) {
@@ -1360,6 +1362,9 @@ class FlutterPdfAdPlugins {
   }
 
   void _handleAdShowSuccessForAd(Object placement, AdInfoBean info, Ad? ad) {
+    if (ad != null && !_notifiedShowSuccessAdIds.add(identityHashCode(ad))) {
+      return;
+    }
     _handleAdShowSuccess(
       placement,
       info,
