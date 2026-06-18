@@ -868,9 +868,6 @@ class FlutterPdfAdLoader<K> {
         onAdClicked: (ad) {
           _dispatchAdClicked(placement, info, ad);
         },
-        onAdImpression: (ad) {
-          _dispatchAdShowed(placement, info, ad);
-        },
         onPaidEvent: _buildOnPaidEvent(placement, info),
       ),
       request:
@@ -922,9 +919,6 @@ class FlutterPdfAdLoader<K> {
         },
         onAdClicked: (ad) {
           _dispatchAdClicked(placement, info, ad);
-        },
-        onAdImpression: (ad) {
-          _dispatchAdShowed(placement, info, ad);
         },
         onPaidEvent: _buildOnPaidEvent(placement, info),
       ),
