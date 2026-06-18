@@ -216,7 +216,6 @@ class FlutterPdfAdPlugins {
     await FlutterPdfAdPluginsPlatform.instance.configureSmallNativeAdLayout(
       _smallNativeAdLayoutName,
     );
-    AdUserGroupManager.instance.onUserGroupResolved = _notifyUserGroupResolved;
     unawaited(AdUserGroupManager.instance.getUserGroup());
     unawaited(AdAdjustManager.instance.restore());
     unawaited(AdReferrerManager.instance.restore());
@@ -229,6 +228,7 @@ class FlutterPdfAdPlugins {
   /// 如果不希望阻塞启动流程，业务侧可以自行使用 `unawaited` 调用。
   Future<void> initializeAdmob() async {
     try {
+      AdUserGroupManager.instance.onUserGroupResolved = _notifyUserGroupResolved;
       await MobileAds.instance.initialize();
       _notifyAdmobInitialized();
     } catch (error) {
