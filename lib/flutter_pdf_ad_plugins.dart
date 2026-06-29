@@ -201,6 +201,8 @@ class FlutterPdfAdPlugins {
   final Set<String> _cmpCountryCodes = <String>{..._defaultCmpCountryCodes};
   FengKongLogic? _fengKongLogic;
   String? _smallNativeAdLayoutName;
+  AdChoicesPlacement _nativeAdChoicesPlacement =
+      AdChoicesPlacement.bottomLeftCorner;
 
   /// 初始化插件本地配置，并启动归因和用户分组信息拉取。
   ///
@@ -210,9 +212,12 @@ class FlutterPdfAdPlugins {
     required String distinctId,
     required FengKongLogic fengKongLogic,
     String? smallNativeAdLayoutName,
+    AdChoicesPlacement nativeAdChoicesPlacement =
+        AdChoicesPlacement.bottomLeftCorner,
   }) async {
     _fengKongLogic = fengKongLogic;
     _smallNativeAdLayoutName = _normalizeLayoutName(smallNativeAdLayoutName);
+    _nativeAdChoicesPlacement = nativeAdChoicesPlacement;
     await FlutterPdfAdPluginsPlatform.instance.configureSmallNativeAdLayout(
       _smallNativeAdLayoutName,
     );
@@ -228,7 +233,8 @@ class FlutterPdfAdPlugins {
   /// 如果不希望阻塞启动流程，业务侧可以自行使用 `unawaited` 调用。
   Future<void> initializeAdmob() async {
     try {
-      AdUserGroupManager.instance.onUserGroupResolved = _notifyUserGroupResolved;
+      AdUserGroupManager.instance.onUserGroupResolved =
+          _notifyUserGroupResolved;
       await MobileAds.instance.initialize();
       _notifyAdmobInitialized();
     } catch (error) {
@@ -595,12 +601,12 @@ class FlutterPdfAdPlugins {
       nativeAdOptionsBuilder: (placement) {
         if (_interstitialLikeNativePlacements.contains(placement)) {
           return NativeAdOptions(
-            adChoicesPlacement: AdChoicesPlacement.topLeftCorner,
+            adChoicesPlacement: _nativeAdChoicesPlacement,
             mediaAspectRatio: MediaAspectRatio.portrait,
             videoOptions: VideoOptions(startMuted: true),
           );
         }
-        return null;
+        return NativeAdOptions(adChoicesPlacement: _nativeAdChoicesPlacement);
       },
       nativeTemplateStyle: nativeTemplateStyle,
       nativeTemplateStyleBuilder: (placement) {
