@@ -519,4 +519,4 @@ await FlutterPdfAdPlugins.instance.disposeLoader();
 - `buildCachedAdWidget` 只是读取当前缓存，不会移除缓存
 - `getAndroidId()` 只有 Android 有值，iOS 会返回 `null`
 - 如果广告位配置里设置了 `exportTime`，缓存到期后会自动失效
-- `userGroup` 为空或配置为 `[0]` 时表示全部用户可用
+- `userGroup` 为 `null` 或空数组 `[]` 时不会请求；配置为 `[0]` 时表示全部用户可用

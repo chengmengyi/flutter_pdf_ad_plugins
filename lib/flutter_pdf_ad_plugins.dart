@@ -1178,8 +1178,11 @@ class FlutterPdfAdPlugins {
     final filtered = configs
         .where((config) {
           final groups = config.userGroup ?? const <int>[];
-          if (groups.isEmpty || groups.contains(0)) {
+          if (groups.contains(0)) {
             return true;
+          }
+          if (groups.isEmpty) {
+            return false;
           }
           if (userGroup == null) {
             return false;
