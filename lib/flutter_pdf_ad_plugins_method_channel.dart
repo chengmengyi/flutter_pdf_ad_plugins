@@ -28,4 +28,9 @@ class MethodChannelFlutterPdfAdPlugins extends FlutterPdfAdPluginsPlatform {
       'layoutName': layoutName,
     });
   }
+
+  @override
+  Future<bool> closeFullScreenAd() async {
+    return await methodChannel.invokeMethod<bool>('closeFullScreenAd') ?? false;
+  }
 }

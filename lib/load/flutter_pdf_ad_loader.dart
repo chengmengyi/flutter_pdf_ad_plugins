@@ -176,6 +176,7 @@ class FlutterPdfAdLoader<K> {
   final Map<K, int> _activeRequestCounts = {};
   final Set<K> _skipReloadAfterClosePlacements = <K>{};
   final Set<K> _singleFillPlacements = <K>{};
+  final Set<K> _programmaticClosingPlacements = <K>{};
   Duration? _requestFallbackDelay;
 
   Map<K, List<AdInfoBean>> get configs => Map.unmodifiable(_configs);
@@ -214,6 +215,18 @@ class FlutterPdfAdLoader<K> {
 
   void updateRequestFallbackDelay(Duration? delay) {
     _requestFallbackDelay = delay;
+  }
+
+  void markProgrammaticClose(Iterable<K> placements) {
+    _programmaticClosingPlacements.addAll(placements);
+  }
+
+  void unmarkProgrammaticClose(Iterable<K> placements) {
+    _programmaticClosingPlacements.removeAll(placements);
+  }
+
+  bool _consumeProgrammaticCloseMark(K placement) {
+    return _programmaticClosingPlacements.remove(placement);
   }
 
   Future<LoadedAdCacheEntry?> loadPlacement(
@@ -303,7 +316,7 @@ class FlutterPdfAdLoader<K> {
     return null;
   }
 
-  Future<bool> showCachedAd(
+  Future<bool?> showCachedAd(
     K placement, {
     OnUserEarnedRewardCallback? onUserEarnedReward,
   }) async {
@@ -331,13 +344,24 @@ class FlutterPdfAdLoader<K> {
       final completer = Completer<ShowAdResult>();
       ad.fullScreenContentCallback = FullScreenContentCallback<AppOpenAd>(
         onAdShowedFullScreenContent: (_) {
+          debugPrint('kk====onAdShowedFullScreenContent');
           _dispatchAdShowed(placement, entry.info, entry.ad);
         },
         onAdDismissedFullScreenContent: (_) async {
+          debugPrint('kk====onAdDismissedFullScreenContent');
+          final programmaticClose = _consumeProgrammaticCloseMark(placement);
           _dispatchAdClosed(placement, entry.info, entry.ad);
-          await _consumeShownEntryAfterShow(placement, entry, trigger: 'close');
+          await _consumeShownEntryAfterShow(
+            placement,
+            entry,
+            trigger: programmaticClose ? 'programmatic-close' : 'close',
+          );
           if (!completer.isCompleted) {
-            completer.complete(const ShowAdResult.success());
+            completer.complete(
+              programmaticClose
+                  ? const ShowAdResult.programmaticClose()
+                  : const ShowAdResult.success(),
+            );
           }
         },
         onAdFailedToShowFullScreenContent: (_, error) {
@@ -376,10 +400,19 @@ class FlutterPdfAdLoader<K> {
           _dispatchAdShowed(placement, entry.info, entry.ad);
         },
         onAdDismissedFullScreenContent: (_) async {
+          final programmaticClose = _consumeProgrammaticCloseMark(placement);
           _dispatchAdClosed(placement, entry.info, entry.ad);
-          await _consumeShownEntryAfterShow(placement, entry, trigger: 'close');
+          await _consumeShownEntryAfterShow(
+            placement,
+            entry,
+            trigger: programmaticClose ? 'programmatic-close' : 'close',
+          );
           if (!completer.isCompleted) {
-            completer.complete(const ShowAdResult.success());
+            completer.complete(
+              programmaticClose
+                  ? const ShowAdResult.programmaticClose()
+                  : const ShowAdResult.success(),
+            );
           }
         },
         onAdFailedToShowFullScreenContent: (_, error) {
@@ -418,10 +451,19 @@ class FlutterPdfAdLoader<K> {
           _dispatchAdShowed(placement, entry.info, entry.ad);
         },
         onAdDismissedFullScreenContent: (_) async {
+          final programmaticClose = _consumeProgrammaticCloseMark(placement);
           _dispatchAdClosed(placement, entry.info, entry.ad);
-          await _consumeShownEntryAfterShow(placement, entry, trigger: 'close');
+          await _consumeShownEntryAfterShow(
+            placement,
+            entry,
+            trigger: programmaticClose ? 'programmatic-close' : 'close',
+          );
           if (!completer.isCompleted) {
-            completer.complete(const ShowAdResult.success());
+            completer.complete(
+              programmaticClose
+                  ? const ShowAdResult.programmaticClose()
+                  : const ShowAdResult.success(),
+            );
           }
         },
         onAdFailedToShowFullScreenContent: (_, error) {
@@ -462,7 +504,7 @@ class FlutterPdfAdLoader<K> {
     return ShowAdResult.failure('unsupported-ad-class=${ad.runtimeType}');
   }
 
-  Future<bool> loadAndShow(
+  Future<bool?> loadAndShow(
     K placement, {
     List<AdInfoBean>? configs,
     bool forceReload = false,
@@ -472,6 +514,9 @@ class FlutterPdfAdLoader<K> {
       placement,
       onUserEarnedReward: onUserEarnedReward,
     );
+    if (cachedShown == null) {
+      return null;
+    }
     if (cachedShown && !forceReload) {
       return true;
     }
@@ -512,6 +557,7 @@ class FlutterPdfAdLoader<K> {
     _configs.clear();
     _loadingTasks.clear();
     _activeRequestCounts.clear();
+    _programmaticClosingPlacements.clear();
   }
 
   Future<LoadedAdCacheEntry?> _loadPlacementInternal(
@@ -1161,6 +1207,9 @@ class ShowAdResult {
   const ShowAdResult.failure(String reason)
     : this._(shown: false, failureReason: reason);
 
-  final bool shown;
+  const ShowAdResult.programmaticClose()
+    : this._(shown: null, failureReason: 'programmatic-close');
+
+  final bool? shown;
   final String? failureReason;
 }

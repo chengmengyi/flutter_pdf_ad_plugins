@@ -423,6 +423,28 @@ class FlutterPdfAdPlugins {
     return _showingAdPlacements.isNotEmpty;
   }
 
+  /// 尝试关闭当前正在展示的全屏广告。
+  ///
+  /// Android 会尝试关闭 Google Mobile Ads SDK 的 `AdActivity`；其它平台或未找到
+  /// 可关闭广告时返回 `false`。这是 best-effort 操作，SDK 不保证所有聚合广告都能
+  /// 被程序化关闭。
+  Future<bool> closeFullScreenAd() async {
+    final loader = _adLoader;
+    final closingPlacements = _showingAdPlacements.toList(growable: false);
+    loader?.markProgrammaticClose(closingPlacements);
+    try {
+      final closed = await FlutterPdfAdPluginsPlatform.instance
+          .closeFullScreenAd();
+      if (!closed) {
+        loader?.unmarkProgrammaticClose(closingPlacements);
+      }
+      return closed;
+    } catch (_) {
+      loader?.unmarkProgrammaticClose(closingPlacements);
+      rethrow;
+    }
+  }
+
   /// 更新需要走 CMP 的国家列表。
   void updateCmpCountryCodes(Iterable<String> countryCodes) {
     _cmpCountryCodes
@@ -795,6 +817,7 @@ class FlutterPdfAdPlugins {
     K placement, {
     bool loadIfNeeded = true,
     bool reloadAfterTake = false,
+    Duration disposeDelay = const Duration(seconds: 2),
   }) async {
     final loader = _ensureLoader<K>();
     await _syncLoaderConfigs(loader);
@@ -832,18 +855,25 @@ class FlutterPdfAdPlugins {
       return null;
     }
     _handleAdShowStartForAd(boxedPlacement, takenEntry.info, takenEntry.ad);
-    return _ConsumableCachedAdWidget(entry: takenEntry);
+    return _ConsumableCachedAdWidget(
+      entry: takenEntry,
+      disposeDelay: disposeDelay,
+    );
   }
 
   /// 展示指定广告位的缓存广告。
-  Future<bool> showCachedAd<K>(
+  ///
+  /// 返回 `true` 表示广告已展示并正常关闭，业务可以继续下一步；返回 `false`
+  /// 表示广告未展示成功；返回 `null` 表示广告展示后被 [closeFullScreenAd]
+  /// 主动关闭，插件会消费旧广告并请求下一条，业务不应继续下一步。
+  Future<bool?> showCachedAd<K>(
     K placement, {
     BuildContext? context,
     OnUserEarnedRewardCallback? onUserEarnedReward,
   }) {
     final boxedPlacement = placement as Object;
     if (_isFengKongBlocked('show', boxedPlacement)) {
-      return Future<bool>.value(false);
+      return Future<bool?>.value(false);
     }
     final loader = _ensureLoader<K>();
     return _showCachedAdWithAudience(
@@ -946,7 +976,7 @@ class FlutterPdfAdPlugins {
     return true;
   }
 
-  Future<bool> _showCachedAdWithAudience(
+  Future<bool?> _showCachedAdWithAudience(
     FlutterPdfAdLoader<Object> loader,
     Object placement, {
     required BuildContext? context,
@@ -968,7 +998,7 @@ class FlutterPdfAdPlugins {
   }
 
   /// 加载后立即展示指定广告位。
-  Future<bool> loadAndShow<K>(
+  Future<bool?> loadAndShow<K>(
     K placement, {
     BuildContext? context,
     List<AdInfoBean>? configs,
@@ -978,7 +1008,7 @@ class FlutterPdfAdPlugins {
   }) {
     final boxedPlacement = placement as Object;
     if (_isFengKongBlocked('load-and-show', boxedPlacement)) {
-      return Future<bool>.value(false);
+      return Future<bool?>.value(false);
     }
     final loader = _ensureLoader<K>(
       placementLabelBuilder: placementLabelBuilder,
@@ -1402,7 +1432,7 @@ class FlutterPdfAdPlugins {
     );
   }
 
-  Future<bool> _loadAndShowPlacement(
+  Future<bool?> _loadAndShowPlacement(
     FlutterPdfAdLoader<Object> loader,
     Object placement, {
     required BuildContext? context,
@@ -1420,6 +1450,12 @@ class FlutterPdfAdPlugins {
         context: context,
         onUserEarnedReward: onUserEarnedReward,
       );
+      if (shown == null) {
+        _logGeneral(
+          'load-and-show-return placement=$placement result=programmatic-close',
+        );
+        return null;
+      }
       if (shown) {
         _logGeneral(
           'load-and-show-return placement=$placement result=shown-from-cache',
@@ -1458,7 +1494,7 @@ class FlutterPdfAdPlugins {
     return shown;
   }
 
-  Future<bool> _showPlacement(
+  Future<bool?> _showPlacement(
     FlutterPdfAdLoader<Object> loader,
     Object placement, {
     required BuildContext? context,
@@ -1646,9 +1682,16 @@ class FlutterPdfAdPlugins {
         placement,
         onUserEarnedReward: onUserEarnedReward,
       );
-      if (shown.shown) {
+      if (shown.shown == true) {
         _log(
           'show-success',
+          placement,
+          cachedEntry.info,
+          extra: 'adType=${cachedEntry.info.adType}',
+        );
+      } else if (shown.shown == null) {
+        _log(
+          'show-programmatic-close',
           placement,
           cachedEntry.info,
           extra: 'adType=${cachedEntry.info.adType}',
@@ -2006,8 +2049,10 @@ class _NativeDialog extends StatelessWidget {
 }
 
 class _ConsumableCachedAdWidget extends StatefulWidget {
-  _ConsumableCachedAdWidget({required this.entry})
-    : handle = _ConsumableAdHandle(entry);
+  _ConsumableCachedAdWidget({
+    required this.entry,
+    required Duration disposeDelay,
+  }) : handle = _ConsumableAdHandle(entry, disposeDelay);
 
   final LoadedAdCacheEntry entry;
   final _ConsumableAdHandle handle;
@@ -2050,11 +2095,10 @@ class _ConsumableCachedAdWidgetState extends State<_ConsumableCachedAdWidget> {
 }
 
 class _ConsumableAdHandle {
-  _ConsumableAdHandle(this.entry);
-
-  static const Duration _disposeDelay = Duration(seconds: 2);
+  _ConsumableAdHandle(this.entry, this.disposeDelay);
 
   final LoadedAdCacheEntry entry;
+  final Duration disposeDelay;
   int _attachCount = 0;
   Timer? _disposeTimer;
   bool _disposed = false;
@@ -2078,7 +2122,13 @@ class _ConsumableAdHandle {
     }
     _attachCount = 0;
     _disposeTimer?.cancel();
-    _disposeTimer = Timer(_disposeDelay, () async {
+    if (disposeDelay <= Duration.zero) {
+      _disposed = true;
+      _disposeTimer = null;
+      unawaited(entry.dispose());
+      return;
+    }
+    _disposeTimer = Timer(disposeDelay, () async {
       if (_disposed || _attachCount > 0) {
         return;
       }

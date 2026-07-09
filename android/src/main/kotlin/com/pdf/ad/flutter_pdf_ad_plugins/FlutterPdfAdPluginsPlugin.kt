@@ -1,7 +1,11 @@
 package com.pdf.ad.flutter_pdf_ad_plugins
 
+import android.app.Activity
+import android.app.Application
 import android.content.Context
+import android.os.Bundle
 import android.provider.Settings
+import com.google.android.gms.ads.AdActivity
 import io.flutter.embedding.engine.plugins.FlutterPlugin.FlutterPluginBinding
 import io.flutter.plugins.googlemobileads.GoogleMobileAdsPlugin
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -9,6 +13,8 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
+import java.util.Collections
+import java.util.WeakHashMap
 
 /** FlutterPdfAdPluginsPlugin */
 class FlutterPdfAdPluginsPlugin :
@@ -21,10 +27,37 @@ class FlutterPdfAdPluginsPlugin :
     private var smallNativeAdLayoutName: String? = null
     private var guideCompactNativeFactoryRegistered = false
     private var fullScreenNativeFactoryRegistered = false
+    private var application: Application? = null
+    private val adActivities = Collections.newSetFromMap(WeakHashMap<Activity, Boolean>())
+    private val activityLifecycleCallbacks = object : Application.ActivityLifecycleCallbacks {
+        override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
+            trackAdActivity(activity)
+        }
+
+        override fun onActivityStarted(activity: Activity) {
+            trackAdActivity(activity)
+        }
+
+        override fun onActivityResumed(activity: Activity) {
+            trackAdActivity(activity)
+        }
+
+        override fun onActivityPaused(activity: Activity) = Unit
+
+        override fun onActivityStopped(activity: Activity) = Unit
+
+        override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+
+        override fun onActivityDestroyed(activity: Activity) {
+            adActivities.remove(activity)
+        }
+    }
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         this.flutterPluginBinding = flutterPluginBinding
         applicationContext = flutterPluginBinding.applicationContext
+        application = flutterPluginBinding.applicationContext as? Application
+        application?.registerActivityLifecycleCallbacks(activityLifecycleCallbacks)
         channel = MethodChannel(flutterPluginBinding.binaryMessenger, "flutter_pdf_ad_plugins")
         channel.setMethodCallHandler(this)
     }
@@ -56,6 +89,9 @@ class FlutterPdfAdPluginsPlugin :
                 guideCompactNativeFactory?.layoutName = smallNativeAdLayoutName
                 result.success(null)
             }
+            "closeFullScreenAd" -> {
+                result.success(closeFullScreenAd())
+            }
             else -> {
                 result.notImplemented()
             }
@@ -64,6 +100,9 @@ class FlutterPdfAdPluginsPlugin :
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         unregisterNativeAdFactories(binding)
+        application?.unregisterActivityLifecycleCallbacks(activityLifecycleCallbacks)
+        application = null
+        adActivities.clear()
         channel.setMethodCallHandler(null)
         flutterPluginBinding = null
         applicationContext = null
@@ -122,6 +161,23 @@ class FlutterPdfAdPluginsPlugin :
             registerNativeAdFactories(binding)
         } catch (_: Throwable) {
         }
+    }
+
+    private fun trackAdActivity(activity: Activity) {
+        if (activity is AdActivity) {
+            adActivities.add(activity)
+        }
+    }
+
+    private fun closeFullScreenAd(): Boolean {
+        var closed = false
+        adActivities.toList().forEach { activity ->
+            if (!activity.isFinishing && !activity.isDestroyed) {
+                activity.finish()
+                closed = true
+            }
+        }
+        return closed
     }
 
     companion object {

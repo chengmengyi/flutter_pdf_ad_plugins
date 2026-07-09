@@ -37,4 +37,8 @@ abstract class FlutterPdfAdPluginsPlatform extends PlatformInterface {
       'configureSmallNativeAdLayout() has not been implemented.',
     );
   }
+
+  Future<bool> closeFullScreenAd() {
+    throw UnimplementedError('closeFullScreenAd() has not been implemented.');
+  }
 }
