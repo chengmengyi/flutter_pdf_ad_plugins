@@ -177,6 +177,7 @@ class FlutterPdfAdLoader<K> {
   final Set<K> _skipReloadAfterClosePlacements = <K>{};
   final Set<K> _singleFillPlacements = <K>{};
   final Set<K> _programmaticClosingPlacements = <K>{};
+  final Set<K> _reloadWhenActiveRequestsFinish = <K>{};
   Duration? _requestFallbackDelay;
 
   Map<K, List<AdInfoBean>> get configs => Map.unmodifiable(_configs);
@@ -248,7 +249,7 @@ class FlutterPdfAdLoader<K> {
     }
 
     final cachedEntry = _cacheMap[placement];
-    if (cachedEntry != null && cachedEntry.isNotEmpty) {
+    if (!force && cachedEntry != null && cachedEntry.isNotEmpty) {
       return cachedEntry.first;
     }
 
@@ -259,13 +260,26 @@ class FlutterPdfAdLoader<K> {
 
     final placementConfigs =
         configs ?? _configs[placement] ?? const <AdInfoBean>[];
-    final future = _loadPlacementInternal(placement, placementConfigs);
+    final future = _loadPlacementInternal(
+      placement,
+      placementConfigs,
+      clearCacheOnNoFill: !force,
+    );
     _loadingTasks[placement] = future;
 
     try {
       return await future;
     } finally {
       _loadingTasks.remove(placement);
+      if ((_activeRequestCounts[placement] ?? 0) <= 0 &&
+          placementConfigs.isNotEmpty) {
+        unawaited(
+          _maybeReloadAfterActiveRequestsFinish(
+            placement,
+            placementConfigs.first,
+          ),
+        );
+      }
     }
   }
 
@@ -344,11 +358,10 @@ class FlutterPdfAdLoader<K> {
       final completer = Completer<ShowAdResult>();
       ad.fullScreenContentCallback = FullScreenContentCallback<AppOpenAd>(
         onAdShowedFullScreenContent: (_) {
-          debugPrint('kk====onAdShowedFullScreenContent');
           _dispatchAdShowed(placement, entry.info, entry.ad);
+          unawaited(_preloadReplacementAfterShow(placement, entry));
         },
         onAdDismissedFullScreenContent: (_) async {
-          debugPrint('kk====onAdDismissedFullScreenContent');
           final programmaticClose = _consumeProgrammaticCloseMark(placement);
           _dispatchAdClosed(placement, entry.info, entry.ad);
           await _consumeShownEntryAfterShow(
@@ -398,6 +411,7 @@ class FlutterPdfAdLoader<K> {
       ad.fullScreenContentCallback = FullScreenContentCallback<InterstitialAd>(
         onAdShowedFullScreenContent: (_) {
           _dispatchAdShowed(placement, entry.info, entry.ad);
+          unawaited(_preloadReplacementAfterShow(placement, entry));
         },
         onAdDismissedFullScreenContent: (_) async {
           final programmaticClose = _consumeProgrammaticCloseMark(placement);
@@ -449,6 +463,7 @@ class FlutterPdfAdLoader<K> {
       ad.fullScreenContentCallback = FullScreenContentCallback<RewardedAd>(
         onAdShowedFullScreenContent: (_) {
           _dispatchAdShowed(placement, entry.info, entry.ad);
+          unawaited(_preloadReplacementAfterShow(placement, entry));
         },
         onAdDismissedFullScreenContent: (_) async {
           final programmaticClose = _consumeProgrammaticCloseMark(placement);
@@ -549,6 +564,38 @@ class FlutterPdfAdLoader<K> {
     return _consumeShownEntryAfterShow(placement, entry, trigger: 'close');
   }
 
+  Future<void> _preloadReplacementAfterShow(
+    K placement,
+    LoadedAdCacheEntry shownEntry,
+  ) async {
+    if (_skipReloadAfterClosePlacements.contains(placement)) {
+      _log(
+        'skip-preload-after-show',
+        placement,
+        info: shownEntry.info,
+        extra: 'reason=skip-reload-after-close',
+      );
+      return;
+    }
+
+    final configs = _configs[placement] ?? const <AdInfoBean>[];
+    final hasLoadableConfig = configs.any(
+      (config) => config.adId != null && config.parsedAdType != null,
+    );
+    if (!hasLoadableConfig) {
+      _log(
+        'skip-preload-after-show',
+        placement,
+        info: shownEntry.info,
+        extra: 'reason=no-loadable-config',
+      );
+      return;
+    }
+
+    _logCacheReload(placement, trigger: 'showed-preload');
+    await loadPlacement(placement, force: true);
+  }
+
   Future<void> dispose() async {
     final placements = _cacheMap.keys.toList(growable: false);
     for (final placement in placements) {
@@ -558,12 +605,14 @@ class FlutterPdfAdLoader<K> {
     _loadingTasks.clear();
     _activeRequestCounts.clear();
     _programmaticClosingPlacements.clear();
+    _reloadWhenActiveRequestsFinish.clear();
   }
 
   Future<LoadedAdCacheEntry?> _loadPlacementInternal(
     K placement,
-    List<AdInfoBean> configs,
-  ) async {
+    List<AdInfoBean> configs, {
+    required bool clearCacheOnNoFill,
+  }) async {
     final sortedConfigs =
         configs
             .where(
@@ -573,7 +622,9 @@ class FlutterPdfAdLoader<K> {
           ..sort((left, right) => (right.sort ?? 0).compareTo(left.sort ?? 0));
 
     if (sortedConfigs.isEmpty) {
-      await clearPlacementCache(placement);
+      if (clearCacheOnNoFill) {
+        await clearPlacementCache(placement);
+      }
       return null;
     }
 
@@ -594,10 +645,9 @@ class FlutterPdfAdLoader<K> {
       if (!allDone()) {
         return;
       }
-      if ((_cacheMap[placement]?.isNotEmpty ?? false)) {
-        return;
+      if (clearCacheOnNoFill) {
+        await clearPlacementCache(placement);
       }
-      await clearPlacementCache(placement);
       completer.complete(null);
     }
 
@@ -630,6 +680,7 @@ class FlutterPdfAdLoader<K> {
       final result = await _loadAd(placement, config);
       completedIndexes.add(index);
       final nextActiveCount = (_activeRequestCounts[placement] ?? 1) - 1;
+      final activeRequestsBecameIdle = nextActiveCount <= 0;
       if (nextActiveCount <= 0) {
         _activeRequestCounts.remove(placement);
       } else {
@@ -648,6 +699,9 @@ class FlutterPdfAdLoader<K> {
           unawaited(startLoadAt(index + 1));
         }
         await tryCompleteNoFill();
+        if (activeRequestsBecameIdle) {
+          unawaited(_maybeReloadAfterActiveRequestsFinish(placement, config));
+        }
         return;
       }
 
@@ -666,6 +720,9 @@ class FlutterPdfAdLoader<K> {
         );
         await entry.dispose();
         await tryCompleteNoFill();
+        if (activeRequestsBecameIdle) {
+          unawaited(_maybeReloadAfterActiveRequestsFinish(placement, config));
+        }
         return;
       }
       hasSuccessfulFill = true;
@@ -680,6 +737,9 @@ class FlutterPdfAdLoader<K> {
         completer.complete(entry);
       }
       await tryCompleteNoFill();
+      if (activeRequestsBecameIdle) {
+        unawaited(_maybeReloadAfterActiveRequestsFinish(placement, config));
+      }
     }
 
     unawaited(startLoadAt(0));
@@ -1125,6 +1185,7 @@ class FlutterPdfAdLoader<K> {
       _cacheMap.remove(placement);
       final activeRequestCount = _activeRequestCounts[placement] ?? 0;
       if (activeRequestCount > 0) {
+        _reloadWhenActiveRequestsFinish.add(placement);
         _log(
           'cache-empty-await-pending',
           placement,
@@ -1151,6 +1212,36 @@ class FlutterPdfAdLoader<K> {
           'remainingCount=${entries.length} '
           'nextRequestOrder=${entries.first.requestOrder}',
     );
+  }
+
+  Future<void> _maybeReloadAfterActiveRequestsFinish(
+    K placement,
+    AdInfoBean info,
+  ) async {
+    if (!_reloadWhenActiveRequestsFinish.contains(placement)) {
+      return;
+    }
+    if (_loadingTasks.containsKey(placement)) {
+      _log(
+        'skip-pending-reload-after-active',
+        placement,
+        info: info,
+        extra: 'reason=loading-task-active',
+      );
+      return;
+    }
+    _reloadWhenActiveRequestsFinish.remove(placement);
+    if ((_cacheMap[placement]?.isNotEmpty ?? false)) {
+      _log(
+        'skip-pending-reload-after-active',
+        placement,
+        info: info,
+        extra: 'reason=cache-filled',
+      );
+      return;
+    }
+    _logCacheReload(placement, trigger: 'active-finished-empty-reload');
+    await loadPlacement(placement, force: true);
   }
 
   void _log(
