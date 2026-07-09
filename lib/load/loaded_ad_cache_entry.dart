@@ -12,8 +12,13 @@ class LoadedAdCacheEntry {
 
   final AdInfoBean info;
   final Ad ad;
+  Object? adPosId;
   final DateTime cachedAt;
   final int requestOrder;
+
+  void bindAdPosId(Object value) {
+    adPosId = value;
+  }
 
   DateTime? get expireAt {
     final exportTime = info.exportTime;

@@ -81,6 +81,7 @@ abstract class FlutterPdfAdListener {
   void onAdShowStart(
     Object placement,
     AdInfoBean info,
+    Object adPosId,
     String adNetwork,
     String adSourceName,
   ) {}
@@ -89,6 +90,7 @@ abstract class FlutterPdfAdListener {
   void onAdShowSuccess(
     Object placement,
     AdInfoBean info,
+    Object adPosId,
     String adNetwork,
     String adSourceName,
   ) {}
@@ -97,6 +99,7 @@ abstract class FlutterPdfAdListener {
   void onAdShowFailure(
     Object placement,
     AdInfoBean info,
+    Object adPosId,
     String adNetwork,
     String adSourceName,
     String errorMessage,
@@ -106,6 +109,7 @@ abstract class FlutterPdfAdListener {
   void onAdClicked(
     Object placement,
     AdInfoBean info,
+    Object adPosId,
     String adNetwork,
     String adSourceName,
   ) {}
@@ -114,6 +118,7 @@ abstract class FlutterPdfAdListener {
   void onAdClosed(
     Object placement,
     AdInfoBean info,
+    Object adPosId,
     String adNetwork,
     String adSourceName,
   ) {}
@@ -121,6 +126,7 @@ abstract class FlutterPdfAdListener {
   /// 广告产生收益时回调。
   void onAdPaidEvent(
     Object placement,
+    Object adPosId,
     double revenue,
     String currencyCode,
     String adNetwork,
@@ -794,7 +800,10 @@ class FlutterPdfAdPlugins {
   }
 
   /// 构建指定广告位的缓存广告组件。
-  Future<Widget?> buildCachedAdWidget<K>(K placement) async {
+  Future<Widget?> buildCachedAdWidget<K>(
+    K placement, {
+    required Object adPosId,
+  }) async {
     final loader = _ensureLoader<K>();
     await _syncLoaderConfigs(loader);
     final boxedPlacement = placement as Object;
@@ -809,12 +818,13 @@ class FlutterPdfAdPlugins {
     )) {
       return null;
     }
-    return loader.buildCachedAdWidget(boxedPlacement);
+    return loader.buildCachedAdWidget(boxedPlacement, adPosId: adPosId);
   }
 
   /// 取出一个可直接消费的缓存广告组件。
   Future<Widget?> takeCachedAdWidget<K>(
     K placement, {
+    required Object adPosId,
     bool loadIfNeeded = true,
     bool reloadAfterTake = false,
     Duration disposeDelay = const Duration(seconds: 2),
@@ -845,6 +855,7 @@ class FlutterPdfAdPlugins {
     }
     final takenEntry = await loader.takeCachedEntry(
       boxedPlacement,
+      adPosId: adPosId,
       reloadAfterTake: reloadAfterTake,
     );
     if (takenEntry == null) {
@@ -854,7 +865,12 @@ class FlutterPdfAdPlugins {
       await takenEntry.dispose();
       return null;
     }
-    _handleAdShowStartForAd(boxedPlacement, takenEntry.info, takenEntry.ad);
+    _handleAdShowStartForAd(
+      boxedPlacement,
+      takenEntry.info,
+      adPosId,
+      takenEntry.ad,
+    );
     return _ConsumableCachedAdWidget(
       entry: takenEntry,
       disposeDelay: disposeDelay,
@@ -868,6 +884,7 @@ class FlutterPdfAdPlugins {
   /// 主动关闭，插件会消费旧广告并请求下一条，业务不应继续下一步。
   Future<bool?> showCachedAd<K>(
     K placement, {
+    required Object adPosId,
     BuildContext? context,
     OnUserEarnedRewardCallback? onUserEarnedReward,
   }) {
@@ -879,6 +896,7 @@ class FlutterPdfAdPlugins {
     return _showCachedAdWithAudience(
       loader,
       boxedPlacement,
+      adPosId: adPosId,
       context: context,
       onUserEarnedReward: onUserEarnedReward,
     );
@@ -979,6 +997,7 @@ class FlutterPdfAdPlugins {
   Future<bool?> _showCachedAdWithAudience(
     FlutterPdfAdLoader<Object> loader,
     Object placement, {
+    required Object adPosId,
     required BuildContext? context,
     required OnUserEarnedRewardCallback? onUserEarnedReward,
   }) async {
@@ -992,6 +1011,7 @@ class FlutterPdfAdPlugins {
     return _showPlacement(
       loader,
       placement,
+      adPosId: adPosId,
       context: context,
       onUserEarnedReward: onUserEarnedReward,
     );
@@ -1000,6 +1020,7 @@ class FlutterPdfAdPlugins {
   /// 加载后立即展示指定广告位。
   Future<bool?> loadAndShow<K>(
     K placement, {
+    required Object adPosId,
     BuildContext? context,
     List<AdInfoBean>? configs,
     bool forceReload = false,
@@ -1016,6 +1037,7 @@ class FlutterPdfAdPlugins {
     return _loadAndShowPlacement(
       loader,
       boxedPlacement,
+      adPosId: adPosId,
       context: context,
       configs: configs,
       forceReload: forceReload,
@@ -1341,24 +1363,33 @@ class FlutterPdfAdPlugins {
   void _handleAdShowStart(
     Object placement,
     AdInfoBean info,
+    Object adPosId,
     String adNetwork,
     String adSourceName,
   ) {
-    _listener?.onAdShowStart(placement, info, adNetwork, adSourceName);
+    _listener?.onAdShowStart(placement, info, adPosId, adNetwork, adSourceName);
   }
 
   void _handleAdShowSuccess(
     Object placement,
     AdInfoBean info,
+    Object adPosId,
     String adNetwork,
     String adSourceName,
   ) {
-    _listener?.onAdShowSuccess(placement, info, adNetwork, adSourceName);
+    _listener?.onAdShowSuccess(
+      placement,
+      info,
+      adPosId,
+      adNetwork,
+      adSourceName,
+    );
   }
 
   void _handleAdShowFailure(
     Object placement,
     AdInfoBean info,
+    Object adPosId,
     String adNetwork,
     String adSourceName,
     String errorMessage,
@@ -1366,6 +1397,7 @@ class FlutterPdfAdPlugins {
     _listener?.onAdShowFailure(
       placement,
       info,
+      adPosId,
       adNetwork,
       adSourceName,
       errorMessage,
@@ -1375,34 +1407,48 @@ class FlutterPdfAdPlugins {
   void _handleAdClicked(
     Object placement,
     AdInfoBean info,
+    Object adPosId,
     String adNetwork,
     String adSourceName,
   ) {
-    _listener?.onAdClicked(placement, info, adNetwork, adSourceName);
+    _listener?.onAdClicked(placement, info, adPosId, adNetwork, adSourceName);
   }
 
   void _handleAdClosed(
     Object placement,
     AdInfoBean info,
+    Object adPosId,
     String adNetwork,
     String adSourceName,
   ) {
-    _listener?.onAdClosed(placement, info, adNetwork, adSourceName);
+    _listener?.onAdClosed(placement, info, adPosId, adNetwork, adSourceName);
   }
 
-  void _handleAdShowStartForAd(Object placement, AdInfoBean info, Ad? ad) {
+  void _handleAdShowStartForAd(
+    Object placement,
+    AdInfoBean info,
+    Object adPosId,
+    Ad? ad,
+  ) {
     _handleAdShowStart(
       placement,
       info,
+      adPosId,
       _resolveAdNetwork(ad),
       _resolveAdSourceName(ad),
     );
   }
 
-  void _handleAdShowSuccessForAd(Object placement, AdInfoBean info, Ad? ad) {
+  void _handleAdShowSuccessForAd(
+    Object placement,
+    AdInfoBean info,
+    Object adPosId,
+    Ad? ad,
+  ) {
     _handleAdShowSuccess(
       placement,
       info,
+      adPosId,
       _resolveAdNetwork(ad),
       _resolveAdSourceName(ad),
     );
@@ -1411,22 +1457,30 @@ class FlutterPdfAdPlugins {
   void _handleAdShowFailureForAd(
     Object placement,
     AdInfoBean info,
+    Object adPosId,
     Ad? ad,
     String errorMessage,
   ) {
     _handleAdShowFailure(
       placement,
       info,
+      adPosId,
       _resolveAdNetwork(ad),
       _resolveAdSourceName(ad),
       errorMessage,
     );
   }
 
-  void _handleAdClosedForAd(Object placement, AdInfoBean info, Ad? ad) {
+  void _handleAdClosedForAd(
+    Object placement,
+    AdInfoBean info,
+    Object adPosId,
+    Ad? ad,
+  ) {
     _handleAdClosed(
       placement,
       info,
+      adPosId,
       _resolveAdNetwork(ad),
       _resolveAdSourceName(ad),
     );
@@ -1435,6 +1489,7 @@ class FlutterPdfAdPlugins {
   Future<bool?> _loadAndShowPlacement(
     FlutterPdfAdLoader<Object> loader,
     Object placement, {
+    required Object adPosId,
     required BuildContext? context,
     required List<AdInfoBean>? configs,
     required bool forceReload,
@@ -1447,6 +1502,7 @@ class FlutterPdfAdPlugins {
       final shown = await _showPlacement(
         loader,
         placement,
+        adPosId: adPosId,
         context: context,
         onUserEarnedReward: onUserEarnedReward,
       );
@@ -1487,6 +1543,7 @@ class FlutterPdfAdPlugins {
     final shown = await _showPlacement(
       loader,
       placement,
+      adPosId: adPosId,
       context: context,
       onUserEarnedReward: onUserEarnedReward,
     );
@@ -1497,6 +1554,7 @@ class FlutterPdfAdPlugins {
   Future<bool?> _showPlacement(
     FlutterPdfAdLoader<Object> loader,
     Object placement, {
+    required Object adPosId,
     required BuildContext? context,
     required OnUserEarnedRewardCallback? onUserEarnedReward,
   }) async {
@@ -1529,6 +1587,7 @@ class FlutterPdfAdPlugins {
       _logGeneral('show-failed placement=$placement reason=no-cached-ad');
       return false;
     }
+    loader.bindCachedEntryAdPosId(cachedEntry, adPosId);
 
     if (cachedEntry.isExpired) {
       if (_skipReloadAfterClosePlacements.contains(placement)) {
@@ -1541,6 +1600,7 @@ class FlutterPdfAdPlugins {
         _handleAdShowFailureForAd(
           placement,
           failedInfo,
+          adPosId,
           cachedEntry.ad,
           'cache-expired-skip-reload',
         );
@@ -1555,6 +1615,7 @@ class FlutterPdfAdPlugins {
         _handleAdShowFailureForAd(
           placement,
           cachedEntry.info,
+          adPosId,
           cachedEntry.ad,
           'fengkong-blocked',
         );
@@ -1574,6 +1635,7 @@ class FlutterPdfAdPlugins {
       _handleAdShowFailureForAd(
         placement,
         cachedEntry.info,
+        adPosId,
         cachedEntry.ad,
         'cache-expired',
       );
@@ -1592,6 +1654,7 @@ class FlutterPdfAdPlugins {
         _handleAdShowFailureForAd(
           placement,
           cachedEntry.info,
+          adPosId,
           cachedEntry.ad,
           'already-showing',
         );
@@ -1613,6 +1676,7 @@ class FlutterPdfAdPlugins {
         _handleAdShowFailureForAd(
           placement,
           cachedEntry.info,
+          adPosId,
           cachedEntry.ad,
           'native-missing-context',
         );
@@ -1627,6 +1691,7 @@ class FlutterPdfAdPlugins {
         _handleAdShowFailureForAd(
           placement,
           cachedEntry.info,
+          adPosId,
           cachedEntry.ad,
           'context-unmounted',
         );
@@ -1643,6 +1708,7 @@ class FlutterPdfAdPlugins {
             _handleAdShowSuccessForAd(
               placement,
               cachedEntry.info,
+              adPosId,
               cachedEntry.ad,
             );
             _log(
@@ -1665,6 +1731,7 @@ class FlutterPdfAdPlugins {
           _handleAdShowFailureForAd(
             placement,
             cachedEntry.info,
+            adPosId,
             cachedEntry.ad,
             shown.failureReason ?? 'unknown',
           );
@@ -1680,6 +1747,7 @@ class FlutterPdfAdPlugins {
     try {
       final shown = await loader.showCachedAdWithResult(
         placement,
+        adPosId: adPosId,
         onUserEarnedReward: onUserEarnedReward,
       );
       if (shown.shown == true) {
@@ -1708,6 +1776,7 @@ class FlutterPdfAdPlugins {
         _handleAdShowFailureForAd(
           placement,
           cachedEntry.info,
+          adPosId,
           cachedEntry.ad,
           shown.failureReason ?? 'unknown',
         );
@@ -1721,6 +1790,7 @@ class FlutterPdfAdPlugins {
   Future<void> _handleAdPaidEvent(
     Object placement,
     AdInfoBean info,
+    Object adPosId,
     Ad ad,
     double valueMicros,
     PrecisionType precision,
@@ -1756,6 +1826,7 @@ class FlutterPdfAdPlugins {
     );
     _listener?.onAdPaidEvent(
       placement,
+      adPosId,
       revenue,
       currencyCode,
       adNetwork,
@@ -1846,7 +1917,12 @@ class FlutterPdfAdPlugins {
     }
 
     if (interstitialLike) {
-      _handleAdShowStartForAd(placement, entry.info, entry.ad);
+      _handleAdShowStartForAd(
+        placement,
+        entry.info,
+        entry.adPosId ?? placement,
+        entry.ad,
+      );
       final routeFuture = navigator.push(
         MaterialPageRoute<void>(
           builder: (_) => _NativeInterstitialPage(ad: ad),
@@ -1856,7 +1932,12 @@ class FlutterPdfAdPlugins {
       onShown();
       await routeFuture;
     } else {
-      _handleAdShowStartForAd(placement, entry.info, entry.ad);
+      _handleAdShowStartForAd(
+        placement,
+        entry.info,
+        entry.adPosId ?? placement,
+        entry.ad,
+      );
       final dialogFuture = showDialog<void>(
         context: navigator.context,
         useRootNavigator: true,
@@ -1867,7 +1948,12 @@ class FlutterPdfAdPlugins {
     }
 
     await loader.consumeShownEntryAfterClose(placement, entry);
-    _handleAdClosedForAd(placement, entry.info, entry.ad);
+    _handleAdClosedForAd(
+      placement,
+      entry.info,
+      entry.adPosId ?? placement,
+      entry.ad,
+    );
     _log('native-closed-consume', placement, entry.info);
     return const _ShowResult.success();
   }

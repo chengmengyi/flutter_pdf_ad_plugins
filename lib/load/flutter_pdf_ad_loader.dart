@@ -46,6 +46,7 @@ class FlutterPdfAdLoader<K> {
     void Function(
       K placement,
       AdInfoBean info,
+      Object adPosId,
       String adNetwork,
       String adSourceName,
     )?
@@ -53,6 +54,7 @@ class FlutterPdfAdLoader<K> {
     void Function(
       K placement,
       AdInfoBean info,
+      Object adPosId,
       String adNetwork,
       String adSourceName,
     )?
@@ -60,6 +62,7 @@ class FlutterPdfAdLoader<K> {
     void Function(
       K placement,
       AdInfoBean info,
+      Object adPosId,
       String adNetwork,
       String adSourceName,
     )?
@@ -67,6 +70,7 @@ class FlutterPdfAdLoader<K> {
     void Function(
       K placement,
       AdInfoBean info,
+      Object adPosId,
       String adNetwork,
       String adSourceName,
     )?
@@ -75,6 +79,7 @@ class FlutterPdfAdLoader<K> {
     void Function(
       K placement,
       AdInfoBean info,
+      Object adPosId,
       Ad ad,
       double valueMicros,
       PrecisionType precision,
@@ -134,6 +139,7 @@ class FlutterPdfAdLoader<K> {
   final void Function(
     K placement,
     AdInfoBean info,
+    Object adPosId,
     String adNetwork,
     String adSourceName,
   )?
@@ -141,6 +147,7 @@ class FlutterPdfAdLoader<K> {
   final void Function(
     K placement,
     AdInfoBean info,
+    Object adPosId,
     String adNetwork,
     String adSourceName,
   )?
@@ -148,6 +155,7 @@ class FlutterPdfAdLoader<K> {
   final void Function(
     K placement,
     AdInfoBean info,
+    Object adPosId,
     String adNetwork,
     String adSourceName,
   )?
@@ -155,6 +163,7 @@ class FlutterPdfAdLoader<K> {
   final void Function(
     K placement,
     AdInfoBean info,
+    Object adPosId,
     String adNetwork,
     String adSourceName,
   )?
@@ -163,6 +172,7 @@ class FlutterPdfAdLoader<K> {
   final void Function(
     K placement,
     AdInfoBean info,
+    Object adPosId,
     Ad ad,
     double valueMicros,
     PrecisionType precision,
@@ -178,6 +188,7 @@ class FlutterPdfAdLoader<K> {
   final Set<K> _singleFillPlacements = <K>{};
   final Set<K> _programmaticClosingPlacements = <K>{};
   final Set<K> _reloadWhenActiveRequestsFinish = <K>{};
+  final Expando<Object> _adPosIds = Expando<Object>('flutter_pdf_ad_pos_id');
   Duration? _requestFallbackDelay;
 
   Map<K, List<AdInfoBean>> get configs => Map.unmodifiable(_configs);
@@ -303,8 +314,13 @@ class FlutterPdfAdLoader<K> {
     return (await getCachedEntry(placement))?.ad;
   }
 
+  void bindCachedEntryAdPosId(LoadedAdCacheEntry entry, Object adPosId) {
+    _bindEntryAdPosId(entry, adPosId);
+  }
+
   Future<LoadedAdCacheEntry?> takeCachedEntry(
     K placement, {
+    required Object adPosId,
     bool reloadAfterTake = false,
   }) async {
     await _evictExpiredCacheIfNeeded(placement, reloadOnExpire: false);
@@ -313,6 +329,7 @@ class FlutterPdfAdLoader<K> {
       return null;
     }
     final entry = entries.removeAt(0);
+    _bindEntryAdPosId(entry, adPosId);
     if (entries.isEmpty) {
       _cacheMap.remove(placement);
     }
@@ -322,8 +339,16 @@ class FlutterPdfAdLoader<K> {
     return entry;
   }
 
-  Future<Widget?> buildCachedAdWidget(K placement) async {
-    final ad = await getCachedAd(placement);
+  Future<Widget?> buildCachedAdWidget(
+    K placement, {
+    required Object adPosId,
+  }) async {
+    final entry = await getCachedEntry(placement);
+    if (entry == null) {
+      return null;
+    }
+    _bindEntryAdPosId(entry, adPosId);
+    final ad = entry.ad;
     if (ad is AdWithView && instanceManager.adIdFor(ad) != null) {
       return AdWidget(ad: ad);
     }
@@ -332,10 +357,12 @@ class FlutterPdfAdLoader<K> {
 
   Future<bool?> showCachedAd(
     K placement, {
+    required Object adPosId,
     OnUserEarnedRewardCallback? onUserEarnedReward,
   }) async {
     final result = await showCachedAdWithResult(
       placement,
+      adPosId: adPosId,
       onUserEarnedReward: onUserEarnedReward,
     );
     return result.shown;
@@ -343,6 +370,7 @@ class FlutterPdfAdLoader<K> {
 
   Future<ShowAdResult> showCachedAdWithResult(
     K placement, {
+    required Object adPosId,
     OnUserEarnedRewardCallback? onUserEarnedReward,
   }) async {
     await _evictExpiredCacheIfNeeded(placement, reloadOnExpire: true);
@@ -352,6 +380,7 @@ class FlutterPdfAdLoader<K> {
     if (entry == null) {
       return const ShowAdResult.failure('no-cached-ad');
     }
+    _bindEntryAdPosId(entry, adPosId);
 
     final ad = entry.ad;
     if (ad is AppOpenAd) {
@@ -521,12 +550,14 @@ class FlutterPdfAdLoader<K> {
 
   Future<bool?> loadAndShow(
     K placement, {
+    required Object adPosId,
     List<AdInfoBean>? configs,
     bool forceReload = false,
     OnUserEarnedRewardCallback? onUserEarnedReward,
   }) async {
     final cachedShown = await showCachedAd(
       placement,
+      adPosId: adPosId,
       onUserEarnedReward: onUserEarnedReward,
     );
     if (cachedShown == null) {
@@ -545,7 +576,11 @@ class FlutterPdfAdLoader<K> {
       return false;
     }
 
-    return showCachedAd(placement, onUserEarnedReward: onUserEarnedReward);
+    return showCachedAd(
+      placement,
+      adPosId: adPosId,
+      onUserEarnedReward: onUserEarnedReward,
+    );
   }
 
   Future<void> clearPlacementCache(K placement) async {
@@ -1052,8 +1087,25 @@ class FlutterPdfAdLoader<K> {
       return null;
     }
     return (ad, valueMicros, precision, currencyCode) {
-      onPaidEvent(placement, info, ad, valueMicros, precision, currencyCode);
+      onPaidEvent(
+        placement,
+        info,
+        _adPosIds[ad] ?? placement as Object,
+        ad,
+        valueMicros,
+        precision,
+        currencyCode,
+      );
     };
+  }
+
+  void _bindAdPosId(Ad ad, Object adPosId) {
+    _adPosIds[ad] = adPosId;
+  }
+
+  void _bindEntryAdPosId(LoadedAdCacheEntry entry, Object adPosId) {
+    entry.bindAdPosId(adPosId);
+    _bindAdPosId(entry.ad, adPosId);
   }
 
   void _logLoadStart(K placement, AdInfoBean info) {
@@ -1124,22 +1176,46 @@ class FlutterPdfAdLoader<K> {
 
   void _dispatchAdShowStart(K placement, AdInfoBean info, Ad ad) {
     final adSourceName = _resolveAdNetwork(ad);
-    _onAdShowStart?.call(placement, info, adSourceName, adSourceName);
+    _onAdShowStart?.call(
+      placement,
+      info,
+      _adPosIds[ad] ?? placement as Object,
+      adSourceName,
+      adSourceName,
+    );
   }
 
   void _dispatchAdShowed(K placement, AdInfoBean info, Ad ad) {
     final adSourceName = _resolveAdNetwork(ad);
-    _onAdShowed?.call(placement, info, adSourceName, adSourceName);
+    _onAdShowed?.call(
+      placement,
+      info,
+      _adPosIds[ad] ?? placement as Object,
+      adSourceName,
+      adSourceName,
+    );
   }
 
   void _dispatchAdClicked(K placement, AdInfoBean info, Ad ad) {
     final adSourceName = _resolveAdNetwork(ad);
-    _onAdClicked?.call(placement, info, adSourceName, adSourceName);
+    _onAdClicked?.call(
+      placement,
+      info,
+      _adPosIds[ad] ?? placement as Object,
+      adSourceName,
+      adSourceName,
+    );
   }
 
   void _dispatchAdClosed(K placement, AdInfoBean info, Ad ad) {
     final adSourceName = _resolveAdNetwork(ad);
-    _onAdClosed?.call(placement, info, adSourceName, adSourceName);
+    _onAdClosed?.call(
+      placement,
+      info,
+      _adPosIds[ad] ?? placement as Object,
+      adSourceName,
+      adSourceName,
+    );
   }
 
   void _logCacheExpired(K placement, {required String trigger}) {
