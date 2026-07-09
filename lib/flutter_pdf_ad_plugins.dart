@@ -431,9 +431,8 @@ class FlutterPdfAdPlugins {
 
   /// 尝试关闭当前正在展示的全屏广告。
   ///
-  /// Android 会尝试关闭 Google Mobile Ads SDK 的 `AdActivity`；其它平台或未找到
-  /// 可关闭广告时返回 `false`。这是 best-effort 操作，SDK 不保证所有聚合广告都能
-  /// 被程序化关闭。
+  /// Android 会尝试关闭 AdMob 和已知聚合 SDK 的全屏广告 Activity；其它平台、
+  /// 未命中 Activity 名单，或 SDK 实现变化时返回 `false`。这是 best-effort 操作。
   Future<bool> closeFullScreenAd() async {
     final loader = _adLoader;
     final closingPlacements = _showingAdPlacements.toList(growable: false);
@@ -449,6 +448,16 @@ class FlutterPdfAdPlugins {
       loader?.unmarkProgrammaticClose(closingPlacements);
       rethrow;
     }
+  }
+
+  /// 追加可被 [closeFullScreenAd] 关闭的 Android 全屏广告 Activity 类名。
+  ///
+  /// 这是追加配置，不会替换插件内置名单；iOS 调用会被忽略。
+  Future<void> updateCloseableFullScreenAdActivityNames(
+    Iterable<String> activityNames,
+  ) {
+    return FlutterPdfAdPluginsPlatform.instance
+        .updateCloseableFullScreenAdActivityNames(activityNames);
   }
 
   /// 更新需要走 CMP 的国家列表。

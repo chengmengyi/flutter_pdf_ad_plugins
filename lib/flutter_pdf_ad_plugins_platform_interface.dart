@@ -41,4 +41,12 @@ abstract class FlutterPdfAdPluginsPlatform extends PlatformInterface {
   Future<bool> closeFullScreenAd() {
     throw UnimplementedError('closeFullScreenAd() has not been implemented.');
   }
+
+  Future<void> updateCloseableFullScreenAdActivityNames(
+    Iterable<String> activityNames,
+  ) {
+    throw UnimplementedError(
+      'updateCloseableFullScreenAdActivityNames() has not been implemented.',
+    );
+  }
 }

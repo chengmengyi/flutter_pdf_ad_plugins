@@ -5,7 +5,6 @@ import android.app.Application
 import android.content.Context
 import android.os.Bundle
 import android.provider.Settings
-import com.google.android.gms.ads.AdActivity
 import io.flutter.embedding.engine.plugins.FlutterPlugin.FlutterPluginBinding
 import io.flutter.plugins.googlemobileads.GoogleMobileAdsPlugin
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -28,7 +27,37 @@ class FlutterPdfAdPluginsPlugin :
     private var guideCompactNativeFactoryRegistered = false
     private var fullScreenNativeFactoryRegistered = false
     private var application: Application? = null
+    private val activeActivities = Collections.newSetFromMap(WeakHashMap<Activity, Boolean>())
     private val adActivities = Collections.newSetFromMap(WeakHashMap<Activity, Boolean>())
+    private val closeableFullScreenAdActivityNames = linkedSetOf(
+        "com.google.android.gms.ads.AdActivity",
+        "com.facebook.ads.AudienceNetworkActivity",
+        "com.facebook.ads.InterstitialAdActivity",
+        "com.applovin.adview.AppLovinFullscreenActivity",
+        "com.bytedance.sdk.openadsdk.activity.TTFullScreenVideoActivity",
+        "com.bytedance.sdk.openadsdk.activity.TTFullScreenExpressVideoActivity",
+        "com.bytedance.sdk.openadsdk.activity.TTInterstitialActivity",
+        "com.bytedance.sdk.openadsdk.activity.TTInterstitialExpressActivity",
+        "com.bytedance.sdk.openadsdk.activity.TTRewardVideoActivity",
+        "com.bytedance.sdk.openadsdk.activity.TTRewardExpressVideoActivity",
+        "com.vungle.warren.ui.VungleActivity",
+        "com.vungle.warren.ui.VungleFlexViewActivity",
+        "com.vungle.ads.internal.ui.VungleActivity",
+        "com.unity3d.services.ads.adunit.AdUnitActivity",
+        "com.unity3d.services.ads.adunit.AdUnitTransparentActivity",
+        "com.unity3d.services.ads.adunit.AdUnitSoftwareActivity",
+        "com.unity3d.services.ads.adunit.AdUnitTransparentSoftwareActivity",
+        "com.ironsource.sdk.controller.ControllerActivity",
+        "com.ironsource.sdk.controller.InterstitialActivity",
+        "com.ironsource.sdk.controller.OpenUrlActivity",
+        "com.mbridge.msdk.reward.player.MBRewardVideoActivity",
+        "com.mbridge.msdk.interstitial.view.MBInterstitialActivity",
+        "com.mbridge.msdk.activity.MBCommonActivity",
+        "com.mbridge.msdk.out.LoadingActivity",
+        "com.mbridge.msdk.interactiveads.activity.InteractiveShowActivity",
+        "com.mbridge.msdk.mbsignalcommon.mraid.MraidActivity",
+        "com.mbridge.msdk.mbsignalcommon.webEnvCheck.WebGLCheckActivity"
+    )
     private val activityLifecycleCallbacks = object : Application.ActivityLifecycleCallbacks {
         override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
             trackAdActivity(activity)
@@ -49,6 +78,7 @@ class FlutterPdfAdPluginsPlugin :
         override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
 
         override fun onActivityDestroyed(activity: Activity) {
+            activeActivities.remove(activity)
             adActivities.remove(activity)
         }
     }
@@ -92,6 +122,12 @@ class FlutterPdfAdPluginsPlugin :
             "closeFullScreenAd" -> {
                 result.success(closeFullScreenAd())
             }
+            "updateCloseableFullScreenAdActivityNames" -> {
+                val activityNames =
+                    call.argument<List<String>>("activityNames") ?: emptyList()
+                updateCloseableFullScreenAdActivityNames(activityNames)
+                result.success(null)
+            }
             else -> {
                 result.notImplemented()
             }
@@ -102,6 +138,7 @@ class FlutterPdfAdPluginsPlugin :
         unregisterNativeAdFactories(binding)
         application?.unregisterActivityLifecycleCallbacks(activityLifecycleCallbacks)
         application = null
+        activeActivities.clear()
         adActivities.clear()
         channel.setMethodCallHandler(null)
         flutterPluginBinding = null
@@ -164,20 +201,47 @@ class FlutterPdfAdPluginsPlugin :
     }
 
     private fun trackAdActivity(activity: Activity) {
-        if (activity is AdActivity) {
+        activeActivities.add(activity)
+        if (isCloseableFullScreenAdActivity(activity)) {
             adActivities.add(activity)
         }
     }
 
     private fun closeFullScreenAd(): Boolean {
         var closed = false
-        adActivities.toList().forEach { activity ->
+        val closeTargets = (adActivities.toList() + activeActivities.toList())
+            .distinct()
+            .filter(::isCloseableFullScreenAdActivity)
+        closeTargets.forEach { activity ->
             if (!activity.isFinishing && !activity.isDestroyed) {
                 activity.finish()
                 closed = true
             }
         }
         return closed
+    }
+
+    private fun updateCloseableFullScreenAdActivityNames(activityNames: List<String>) {
+        activityNames
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .forEach { closeableFullScreenAdActivityNames.add(it) }
+        activeActivities
+            .filter(::isCloseableFullScreenAdActivity)
+            .forEach { adActivities.add(it) }
+    }
+
+    private fun isCloseableFullScreenAdActivity(activity: Activity): Boolean {
+        val activityClass = activity.javaClass
+        val className = activityClass.name
+        if (closeableFullScreenAdActivityNames.contains(className)) {
+            return true
+        }
+        return closeableFullScreenAdActivityNames.any { closeableName ->
+            runCatching {
+                Class.forName(closeableName).isAssignableFrom(activityClass)
+            }.getOrDefault(false)
+        }
     }
 
     companion object {

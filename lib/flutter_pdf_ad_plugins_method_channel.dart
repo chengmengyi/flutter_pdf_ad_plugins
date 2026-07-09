@@ -33,4 +33,14 @@ class MethodChannelFlutterPdfAdPlugins extends FlutterPdfAdPluginsPlatform {
   Future<bool> closeFullScreenAd() async {
     return await methodChannel.invokeMethod<bool>('closeFullScreenAd') ?? false;
   }
+
+  @override
+  Future<void> updateCloseableFullScreenAdActivityNames(
+    Iterable<String> activityNames,
+  ) async {
+    await methodChannel.invokeMethod<void>(
+      'updateCloseableFullScreenAdActivityNames',
+      {'activityNames': activityNames.toList(growable: false)},
+    );
+  }
 }
