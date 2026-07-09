@@ -452,10 +452,13 @@ class FlutterPdfAdPlugins {
 
   /// 追加可被 [closeFullScreenAd] 关闭的 Android 全屏广告 Activity 类名。
   ///
-  /// 这是追加配置，不会替换插件内置名单；iOS 调用会被忽略。
+  /// 这是追加配置，不会替换插件内置名单；非 Android 平台调用会被忽略。
   Future<void> updateCloseableFullScreenAdActivityNames(
     Iterable<String> activityNames,
   ) {
+    if (defaultTargetPlatform != TargetPlatform.android) {
+      return Future<void>.value();
+    }
     return FlutterPdfAdPluginsPlatform.instance
         .updateCloseableFullScreenAdActivityNames(activityNames);
   }

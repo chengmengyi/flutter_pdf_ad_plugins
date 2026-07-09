@@ -514,7 +514,7 @@ await FlutterPdfAdPlugins.instance.disposeLoader();
 - 如果业务依赖 `onAdmobInitialized`，请先 `setListener`，再调用 `initializeAdmob`
 - `MobileAds.initialize` 可能较慢；不想阻塞启动时可以自行 `unawaited(FlutterPdfAdPlugins.instance.initializeAdmob())`
 - `updateAdRequestTimeoutSeconds` 不配置或传入 `0` 时，只在 SDK 请求失败后请求下一层；传入正数时，当前层超时会请求下一层
-- `closeFullScreenAd()` 会在 Android 尝试关闭 Google Mobile Ads 的全屏 `AdActivity`，这是 best-effort 操作，不保证所有聚合平台广告都能关闭
+- `closeFullScreenAd()` 会在 Android 尝试关闭 AdMob 和已知聚合 SDK 的全屏广告 Activity；可通过 `updateCloseableFullScreenAdActivityNames()` 追加可关闭 Activity 类名
 - 插件不再内置广告展示冷却判断，冷却逻辑请放在业务项目里处理
 - `takeCachedAdWidget` 适合列表流消费，取出后会从缓存中移除
 - `buildCachedAdWidget` 只是读取当前缓存，不会移除缓存
