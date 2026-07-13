@@ -830,7 +830,17 @@ class FlutterPdfAdPlugins {
     )) {
       return null;
     }
-    return loader.buildCachedAdWidget(boxedPlacement, adPosId: adPosId);
+    final ad = cachedEntry.ad;
+    if (ad is! AdWithView || instanceManager.adIdFor(ad) == null) {
+      return null;
+    }
+    loader.bindCachedEntryAdPosId(cachedEntry, adPosId);
+    return _TrackedCachedAdWidget(
+      placement: boxedPlacement,
+      entry: cachedEntry,
+      adPosId: adPosId,
+      onShowStart: _handleAdShowStartForAd,
+    );
   }
 
   /// 取出一个可直接消费的缓存广告组件。
@@ -2189,6 +2199,72 @@ class _ConsumableCachedAdWidgetState extends State<_ConsumableCachedAdWidget> {
     // same widget without crashing, while still releasing stale ads.
     widget.handle.detach();
     super.dispose();
+  }
+}
+
+typedef _TrackedAdShowStartCallback =
+    void Function(Object placement, AdInfoBean info, Object adPosId, Ad? ad);
+
+class _TrackedCachedAdWidget extends StatefulWidget {
+  const _TrackedCachedAdWidget({
+    required this.placement,
+    required this.entry,
+    required this.adPosId,
+    required this.onShowStart,
+  });
+
+  final Object placement;
+  final LoadedAdCacheEntry entry;
+  final Object adPosId;
+  final _TrackedAdShowStartCallback onShowStart;
+
+  @override
+  State<_TrackedCachedAdWidget> createState() => _TrackedCachedAdWidgetState();
+}
+
+class _TrackedCachedAdWidgetState extends State<_TrackedCachedAdWidget> {
+  bool _showStartNotified = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _notifyShowStart());
+  }
+
+  void _notifyShowStart() {
+    if (!mounted || _showStartNotified) {
+      return;
+    }
+    final renderObject = context.findRenderObject();
+    if (renderObject is! RenderBox ||
+        !renderObject.hasSize ||
+        renderObject.size.width <= 0 ||
+        renderObject.size.height <= 0) {
+      return;
+    }
+    _showStartNotified = true;
+    widget.onShowStart(
+      widget.placement,
+      widget.entry.info,
+      widget.adPosId,
+      widget.entry.ad,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ad = widget.entry.ad;
+    if (ad is! AdWithView) {
+      return const SizedBox.shrink();
+    }
+    if (instanceManager.adIdFor(ad) == null) {
+      debugPrint(
+        '[FlutterPdfAdPlugins] skip-build-tracked-widget '
+        'reason=ad-not-loaded-or-disposed adClass=${ad.runtimeType}',
+      );
+      return const SizedBox.shrink();
+    }
+    return AdWidget(ad: ad);
   }
 }
 
