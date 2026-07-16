@@ -200,6 +200,8 @@ class FlutterPdfAdPlugins {
       <Object, Set<VoidCallback>>{};
   final Set<Object> _showingPlacements = <Object>{};
   final Set<Object> _showingAdPlacements = <Object>{};
+  final Map<Object, _NativeInterstitialRouteHandle> _nativeInterstitialRoutes =
+      <Object, _NativeInterstitialRouteHandle>{};
   final Map<Object, String> _userGroupFilterLogCache = <Object, String>{};
   Duration? _adRequestTimeout;
   String? _lastFacebookUserCheckLogSignature;
@@ -431,23 +433,60 @@ class FlutterPdfAdPlugins {
 
   /// 尝试关闭当前正在展示的全屏广告。
   ///
-  /// Android 会尝试关闭 AdMob 和已知聚合 SDK 的全屏广告 Activity；其它平台、
-  /// 未命中 Activity 名单，或 SDK 实现变化时返回 `false`。这是 best-effort 操作。
+  /// 插件会先尝试关闭按插屏处理的原生广告页；Android 还会尝试关闭 AdMob
+  /// 和已知聚合 SDK 的全屏广告 Activity。未命中 Activity 名单，或 SDK 实现
+  /// 变化时返回 `false`。这是 best-effort 操作。
   Future<bool> closeFullScreenAd() async {
     final loader = _adLoader;
     final closingPlacements = _showingAdPlacements.toList(growable: false);
     loader?.markProgrammaticClose(closingPlacements);
+    final closedNativeInterstitialPlacements =
+        await _closeNativeInterstitialPages();
+    if (closedNativeInterstitialPlacements.isNotEmpty) {
+      loader?.unmarkProgrammaticClose(closedNativeInterstitialPlacements);
+    }
     try {
       final closed = await FlutterPdfAdPluginsPlatform.instance
           .closeFullScreenAd();
-      if (!closed) {
+      final closedNativeInterstitial =
+          closedNativeInterstitialPlacements.isNotEmpty;
+      if (!closed && !closedNativeInterstitial) {
         loader?.unmarkProgrammaticClose(closingPlacements);
       }
-      return closed;
+      return closed || closedNativeInterstitial;
     } catch (_) {
       loader?.unmarkProgrammaticClose(closingPlacements);
       rethrow;
     }
+  }
+
+  Future<Set<Object>> _closeNativeInterstitialPages() async {
+    final closedPlacements = <Object>{};
+    final closedFutures = <Future<void>>[];
+    final routes = Map<Object, _NativeInterstitialRouteHandle>.of(
+      _nativeInterstitialRoutes,
+    );
+    for (final entry in routes.entries) {
+      final handle = entry.value;
+      final route = handle.route;
+      final navigator = route.navigator;
+      if (!route.isActive || navigator == null) {
+        continue;
+      }
+      handle.closedProgrammatically = true;
+      navigator.removeRoute(route);
+      closedFutures.add(
+        handle.closed.timeout(
+          const Duration(milliseconds: 500),
+          onTimeout: () {},
+        ),
+      );
+      closedPlacements.add(entry.key);
+    }
+    if (closedFutures.isNotEmpty) {
+      await Future.wait(closedFutures);
+    }
+    return closedPlacements;
   }
 
   /// 追加可被 [closeFullScreenAd] 关闭的 Android 全屏广告 Activity 类名。
@@ -1078,6 +1117,7 @@ class FlutterPdfAdPlugins {
     _placementLoadedListeners.clear();
     _showingPlacements.clear();
     _showingAdPlacements.clear();
+    _nativeInterstitialRoutes.clear();
     _singleFillPlacements.clear();
     AdUserGroupManager.instance.onUserGroupResolved = null;
     if (loader != null) {
@@ -1741,7 +1781,7 @@ class FlutterPdfAdPlugins {
             );
           },
         );
-        if (!shown.shown) {
+        if (shown.shown == false) {
           _log(
             'show-failed',
             placement,
@@ -1756,6 +1796,13 @@ class FlutterPdfAdPlugins {
             adPosId,
             cachedEntry.ad,
             shown.failureReason ?? 'unknown',
+          );
+        } else if (shown.shown == null) {
+          _log(
+            'show-programmatic-close',
+            placement,
+            cachedEntry.info,
+            extra: 'adType=native',
           );
         }
         return shown.shown;
@@ -1945,14 +1992,34 @@ class FlutterPdfAdPlugins {
         entry.adPosId ?? placement,
         entry.ad,
       );
-      final routeFuture = navigator.push(
-        MaterialPageRoute<void>(
-          builder: (_) => _NativeInterstitialPage(ad: ad),
-          fullscreenDialog: true,
-        ),
+      final route = MaterialPageRoute<void>(
+        builder: (_) => _NativeInterstitialPage(ad: ad),
+        fullscreenDialog: true,
       );
+      final routeHandle = _NativeInterstitialRouteHandle(route);
+      _nativeInterstitialRoutes[placement] = routeHandle;
+      final routeFuture = navigator.push(route);
       onShown();
-      await routeFuture;
+      try {
+        await routeFuture;
+      } finally {
+        if (identical(_nativeInterstitialRoutes[placement], routeHandle)) {
+          _nativeInterstitialRoutes.remove(placement);
+        }
+        routeHandle.completeClosed();
+      }
+      final closedProgrammatically = routeHandle.closedProgrammatically;
+      await loader.consumeShownEntryAfterClose(placement, entry);
+      _handleAdClosedForAd(
+        placement,
+        entry.info,
+        entry.adPosId ?? placement,
+        entry.ad,
+      );
+      _log('native-closed-consume', placement, entry.info);
+      return closedProgrammatically
+          ? const _ShowResult.programmaticClose()
+          : const _ShowResult.success();
     } else {
       _handleAdShowStartForAd(
         placement,
@@ -2092,8 +2159,27 @@ class _ShowResult {
   const _ShowResult.failure(String reason)
     : this._(shown: false, failureReason: reason);
 
-  final bool shown;
+  const _ShowResult.programmaticClose()
+    : this._(shown: null, failureReason: 'programmatic-close');
+
+  final bool? shown;
   final String? failureReason;
+}
+
+class _NativeInterstitialRouteHandle {
+  _NativeInterstitialRouteHandle(this.route);
+
+  final Route<void> route;
+  final Completer<void> _closedCompleter = Completer<void>();
+  bool closedProgrammatically = false;
+
+  Future<void> get closed => _closedCompleter.future;
+
+  void completeClosed() {
+    if (!_closedCompleter.isCompleted) {
+      _closedCompleter.complete();
+    }
+  }
 }
 
 class _NativeInterstitialPage extends StatelessWidget {
