@@ -460,6 +460,30 @@ class FlutterPdfAdPlugins {
     }
   }
 
+  /// 尝试关闭当前全屏广告，并等待 Dart 层展示状态清空。
+  ///
+  /// 返回 `true` 表示当前没有广告展示，或已确认关闭并清空展示状态；
+  /// 返回 `false` 表示发起关闭失败，或超时后仍未确认关闭完成。
+  Future<bool> closeFullScreenAdAndWait({
+    Duration timeout = const Duration(milliseconds: 1500),
+    Duration pollInterval = const Duration(milliseconds: 50),
+  }) async {
+    if (_showingAdPlacements.isEmpty) {
+      return true;
+    }
+
+    final closed = await closeFullScreenAd();
+    final effectivePollInterval = pollInterval > Duration.zero
+        ? pollInterval
+        : const Duration(milliseconds: 50);
+    final stopwatch = Stopwatch()..start();
+    while (_showingAdPlacements.isNotEmpty && stopwatch.elapsed < timeout) {
+      await Future<void>.delayed(effectivePollInterval);
+    }
+    stopwatch.stop();
+    return _showingAdPlacements.isEmpty;
+  }
+
   Future<Set<Object>> _closeNativeInterstitialPages() async {
     final closedPlacements = <Object>{};
     final closedFutures = <Future<void>>[];
