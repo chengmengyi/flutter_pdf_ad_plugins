@@ -60,21 +60,23 @@ abstract class FlutterPdfAdListener {
   /// 发起广告请求时回调。
   void onAdRequestStart(Object placement, AdInfoBean info) {}
 
-  /// 广告请求成功时回调。
+  /// 广告请求成功时回调，[loadDurationSeconds] 为本次 SDK 加载耗时，单位秒。
   void onAdRequestSuccess(
     Object placement,
     AdInfoBean info,
     String adNetwork,
     String adSourceName,
+    double loadDurationSeconds,
   ) {}
 
-  /// 广告请求失败时回调。
+  /// 广告请求失败时回调，[loadDurationSeconds] 为本次 SDK 加载耗时，单位秒。
   void onAdRequestFailure(
     Object placement,
     AdInfoBean info,
     String failReason,
     String adNetwork,
     String adSourceName,
+    double loadDurationSeconds,
   ) {}
 
   /// 广告满足展示条件，准备调用展示逻辑时回调。
@@ -472,7 +474,7 @@ class FlutterPdfAdPlugins {
       return true;
     }
 
-    final closed = await closeFullScreenAd();
+    await closeFullScreenAd();
     final effectivePollInterval = pollInterval > Duration.zero
         ? pollInterval
         : const Duration(milliseconds: 50);
@@ -1426,8 +1428,15 @@ class FlutterPdfAdPlugins {
     AdInfoBean info,
     String adNetwork,
     String adSourceName,
+    double loadDurationSeconds,
   ) {
-    _listener?.onAdRequestSuccess(placement, info, adNetwork, adSourceName);
+    _listener?.onAdRequestSuccess(
+      placement,
+      info,
+      adNetwork,
+      adSourceName,
+      loadDurationSeconds,
+    );
   }
 
   void _handleAdRequestFailure(
@@ -1436,6 +1445,7 @@ class FlutterPdfAdPlugins {
     String failReason,
     String adNetwork,
     String adSourceName,
+    double loadDurationSeconds,
   ) {
     _listener?.onAdRequestFailure(
       placement,
@@ -1443,6 +1453,7 @@ class FlutterPdfAdPlugins {
       failReason,
       adNetwork,
       adSourceName,
+      loadDurationSeconds,
     );
   }
 

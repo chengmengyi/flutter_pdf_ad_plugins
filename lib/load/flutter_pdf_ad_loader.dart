@@ -33,6 +33,7 @@ class FlutterPdfAdLoader<K> {
       AdInfoBean info,
       String adNetwork,
       String adSourceName,
+      double loadDurationSeconds,
     )?
     onAdRequestSuccess,
     void Function(
@@ -41,6 +42,7 @@ class FlutterPdfAdLoader<K> {
       String failReason,
       String adNetwork,
       String adSourceName,
+      double loadDurationSeconds,
     )?
     onAdRequestFailure,
     void Function(
@@ -126,6 +128,7 @@ class FlutterPdfAdLoader<K> {
     AdInfoBean info,
     String adNetwork,
     String adSourceName,
+    double loadDurationSeconds,
   )?
   _onAdRequestSuccess;
   final void Function(
@@ -134,6 +137,7 @@ class FlutterPdfAdLoader<K> {
     String failReason,
     String adNetwork,
     String adSourceName,
+    double loadDurationSeconds,
   )?
   _onAdRequestFailure;
   final void Function(
@@ -712,7 +716,11 @@ class FlutterPdfAdLoader<K> {
         timers.add(timer);
       }
 
+      final loadStopwatch = Stopwatch()..start();
       final result = await _loadAd(placement, config);
+      loadStopwatch.stop();
+      final loadDurationSeconds =
+          loadStopwatch.elapsedMicroseconds / Duration.microsecondsPerSecond;
       completedIndexes.add(index);
       final nextActiveCount = (_activeRequestCounts[placement] ?? 1) - 1;
       final activeRequestsBecameIdle = nextActiveCount <= 0;
@@ -729,6 +737,7 @@ class FlutterPdfAdLoader<K> {
           config,
           reason: result.failureReason,
           adNetwork: result.adNetwork,
+          loadDurationSeconds: loadDurationSeconds,
         );
         if (index + 1 < sortedConfigs.length) {
           unawaited(startLoadAt(index + 1));
@@ -766,6 +775,7 @@ class FlutterPdfAdLoader<K> {
         placement,
         entry,
         cacheCount: _cacheMap[placement]?.length ?? 0,
+        loadDurationSeconds: loadDurationSeconds,
       );
       _onPlacementLoaded?.call(placement, entry);
       if (!completer.isCompleted) {
@@ -1118,21 +1128,33 @@ class FlutterPdfAdLoader<K> {
     AdInfoBean info, {
     String? reason,
     String? adNetwork,
+    required double loadDurationSeconds,
   }) {
+    final failReason = reason ?? 'unknown';
+    final resolvedAdNetwork = adNetwork ?? _fallbackAdNetwork;
     _onAdRequestFailure?.call(
       placement,
       info,
-      reason ?? 'unknown',
-      adNetwork ?? _fallbackAdNetwork,
-      adNetwork ?? _fallbackAdNetwork,
+      failReason,
+      resolvedAdNetwork,
+      resolvedAdNetwork,
+      loadDurationSeconds,
     );
-    _log('load-failed', placement, info: info, extra: reason);
+    _log(
+      'load-failed',
+      placement,
+      info: info,
+      extra:
+          'reason=$failReason '
+          'loadDurationSeconds=${loadDurationSeconds.toStringAsFixed(3)}',
+    );
   }
 
   void _logLoadSuccess(
     K placement,
     LoadedAdCacheEntry entry, {
     required int cacheCount,
+    required double loadDurationSeconds,
   }) {
     final adSourceName = _resolveAdNetwork(entry.ad);
     _onAdRequestSuccess?.call(
@@ -1140,6 +1162,7 @@ class FlutterPdfAdLoader<K> {
       entry.info,
       adSourceName,
       adSourceName,
+      loadDurationSeconds,
     );
     _log(
       'load-success',
@@ -1150,6 +1173,7 @@ class FlutterPdfAdLoader<K> {
           'cacheCount=$cacheCount '
           'loadedAt=${entry.cachedAt.toIso8601String()} '
           'expireAt=${entry.expireAt?.toIso8601String() ?? 'never'} '
+          'loadDurationSeconds=${loadDurationSeconds.toStringAsFixed(3)} '
           'adClass=${entry.ad.runtimeType}',
     );
   }
