@@ -964,6 +964,13 @@ class FlutterPdfAdPlugins {
     );
   }
 
+  /// 释放已经通过 [takeCachedAdWidget] 取出、但未挂载到组件树的广告。
+  Future<void> disposeTakenAdWidget(Widget widget) async {
+    if (widget is _ConsumableCachedAdWidget) {
+      await widget.handle.disposeNow();
+    }
+  }
+
   /// 展示指定广告位的缓存广告。
   ///
   /// 返回 `true` 表示广告已展示并正常关闭，业务可以继续下一步；返回 `false`
@@ -2418,18 +2425,25 @@ class _ConsumableAdHandle {
     _attachCount = 0;
     _disposeTimer?.cancel();
     if (disposeDelay <= Duration.zero) {
-      _disposed = true;
-      _disposeTimer = null;
-      unawaited(entry.dispose());
+      unawaited(disposeNow());
       return;
     }
     _disposeTimer = Timer(disposeDelay, () async {
       if (_disposed || _attachCount > 0) {
         return;
       }
-      _disposed = true;
-      _disposeTimer = null;
-      await entry.dispose();
+      await disposeNow();
     });
+  }
+
+  Future<void> disposeNow() async {
+    if (_disposed) {
+      return;
+    }
+    _disposed = true;
+    _attachCount = 0;
+    _disposeTimer?.cancel();
+    _disposeTimer = null;
+    await entry.dispose();
   }
 }
