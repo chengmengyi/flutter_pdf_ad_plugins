@@ -15,6 +15,7 @@ import 'flutter_pdf_ad_plugins_platform_interface.dart';
 import 'group/ad_user_group_manager.dart';
 import 'load/flutter_pdf_ad_loader.dart';
 import 'load/loaded_ad_cache_entry.dart';
+import 'limit/ad_daily_count_manager.dart';
 import 'revenue/ad_revenue_manager.dart';
 import 'attribution/ad_adjust_manager.dart';
 import 'attribution/ad_referrer_manager.dart';
@@ -335,6 +336,18 @@ class FlutterPdfAdPlugins {
     debugPrint(
       '[FlutterPdfAdPlugins] update-debug-paid-revenue-range '
       'minRevenue=$_debugMinRevenue maxRevenue=$_debugMaxRevenue',
+    );
+  }
+
+  /// 设置每天允许的最大开屏广告展示数和点击数。
+  ///
+  /// 只统计 `adType=open` 的广告。达到任一上限后不再加载新的开屏广告，
+  /// 已经成功加载的缓存广告仍然可以展示，其他类型广告不受影响。
+  /// `null` 表示不限制对应计数；不调用此方法时默认不限制。
+  void setMaxShowAndClickNum({int? maxShowNum, int? maxClickNum}) {
+    AdDailyCountManager.instance.configure(
+      maxShowCount: maxShowNum,
+      maxClickCount: maxClickNum,
     );
   }
 
@@ -729,6 +742,12 @@ class FlutterPdfAdPlugins {
       onAdClicked: _handleAdClicked,
       onAdClosed: _handleAdClosed,
       onPaidEvent: _handleAdPaidEvent,
+      canLoadAppOpenAd: (_) => AdDailyCountManager.instance.canLoadAd(),
+      onAdImpression: (_, info) {
+        if (info.parsedAdType == AdType.appOpen) {
+          unawaited(AdDailyCountManager.instance.recordShow());
+        }
+      },
       placementLabelBuilder: placementLabelBuilder == null
           ? null
           : (placement) => placementLabelBuilder(placement as K),
@@ -1515,6 +1534,9 @@ class FlutterPdfAdPlugins {
     String adNetwork,
     String adSourceName,
   ) {
+    if (info.parsedAdType == AdType.appOpen) {
+      unawaited(AdDailyCountManager.instance.recordClick());
+    }
     _listener?.onAdClicked(placement, info, adPosId, adNetwork, adSourceName);
   }
 

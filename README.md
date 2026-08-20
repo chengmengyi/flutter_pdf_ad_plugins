@@ -230,6 +230,13 @@ void configAds() {
 void configAdvancedOptions() {
   final ad = FlutterPdfAdPlugins.instance;
 
+  // 开屏广告每天最多展示 20 次、点击 5 次；达到任一上限后不再加载
+  // 新的开屏广告。已经加载成功的缓存广告仍然可以继续展示。
+  ad.setMaxShowAndClickNum(
+    maxShowNum: 20,
+    maxClickNum: 5,
+  );
+
   // Native 按插屏样式展示
   ad.updateInterstitialLikeNativePlacements([
     AdPlacement.homeNative,

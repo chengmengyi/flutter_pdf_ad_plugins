@@ -88,6 +88,8 @@ class FlutterPdfAdLoader<K> {
       String currencyCode,
     )?
     onPaidEvent,
+    Future<bool> Function(K placement)? canLoadAppOpenAd,
+    void Function(K placement, AdInfoBean info)? onAdImpression,
   }) : _defaultAdRequest = defaultAdRequest ?? const AdRequest(),
        _bannerSize = bannerSize ?? AdSize.banner,
        _bannerSizeBuilder = bannerSizeBuilder,
@@ -107,7 +109,9 @@ class FlutterPdfAdLoader<K> {
        _onAdClicked = onAdClicked,
        _onAdClosed = onAdClosed,
        _placementLabelBuilder = placementLabelBuilder,
-       _onPaidEvent = onPaidEvent {
+       _onPaidEvent = onPaidEvent,
+       _canLoadAppOpenAd = canLoadAppOpenAd,
+       _onAdImpression = onAdImpression {
     updateConfigs(initialConfigs);
   }
 
@@ -183,6 +187,8 @@ class FlutterPdfAdLoader<K> {
     String currencyCode,
   )?
   _onPaidEvent;
+  final Future<bool> Function(K placement)? _canLoadAppOpenAd;
+  final void Function(K placement, AdInfoBean info)? _onAdImpression;
 
   final Map<K, List<AdInfoBean>> _configs = {};
   final Map<K, List<LoadedAdCacheEntry>> _cacheMap = {};
@@ -273,8 +279,37 @@ class FlutterPdfAdLoader<K> {
       return latestInFlight;
     }
 
-    final placementConfigs =
+    var placementConfigs =
         configs ?? _configs[placement] ?? const <AdInfoBean>[];
+    final hasAppOpenConfig = placementConfigs.any(
+      (config) => config.parsedAdType == AdType.appOpen,
+    );
+    final canLoadAppOpenAd = _canLoadAppOpenAd;
+    if (hasAppOpenConfig &&
+        canLoadAppOpenAd != null &&
+        !await canLoadAppOpenAd(placement)) {
+      placementConfigs = placementConfigs
+          .where((config) => config.parsedAdType != AdType.appOpen)
+          .toList(growable: false);
+      if (!kReleaseMode) {
+        debugPrint(
+          '[FlutterPdfAdLoader] app-open-load-blocked '
+          'placement=${_placementLabel(placement)} '
+          'reason=daily-show-or-click-limit',
+        );
+      }
+      if (placementConfigs.isEmpty) {
+        return null;
+      }
+    }
+
+    // The asynchronous limit check may have allowed another caller to start
+    // loading this placement while we were waiting.
+    final inFlightAfterLimitCheck = _loadingTasks[placement];
+    if (inFlightAfterLimitCheck != null) {
+      return inFlightAfterLimitCheck;
+    }
+
     final future = _loadPlacementInternal(
       placement,
       placementConfigs,
@@ -1019,6 +1054,9 @@ class FlutterPdfAdLoader<K> {
         onAdClicked: (ad) {
           _dispatchAdClicked(placement, info, ad);
         },
+        onAdImpression: (ad) {
+          _onAdImpression?.call(placement, info);
+        },
         onPaidEvent: _buildOnPaidEvent(placement, info),
       ),
       request:
@@ -1070,6 +1108,9 @@ class FlutterPdfAdLoader<K> {
         },
         onAdClicked: (ad) {
           _dispatchAdClicked(placement, info, ad);
+        },
+        onAdImpression: (ad) {
+          _onAdImpression?.call(placement, info);
         },
         onPaidEvent: _buildOnPaidEvent(placement, info),
       ),
@@ -1210,6 +1251,7 @@ class FlutterPdfAdLoader<K> {
   }
 
   void _dispatchAdShowed(K placement, AdInfoBean info, Ad ad) {
+    _onAdImpression?.call(placement, info);
     final adSourceName = _resolveAdNetwork(ad);
     _onAdShowed?.call(
       placement,
