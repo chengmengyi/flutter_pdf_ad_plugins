@@ -351,6 +351,13 @@ class FlutterPdfAdPlugins {
     );
   }
 
+  /// 判断当天的开屏广告展示数和点击数是否仍未达到配置上限。
+  ///
+  /// 此方法只读取计数，不会增加展示数或点击数。未配置上限时返回 `true`。
+  Future<bool> canTrackAppOpenAdChance() {
+    return AdDailyCountManager.instance.canLoadAd();
+  }
+
   /// 配置同一广告位多层级请求的超时时间。
   ///
   /// 未配置或传入小于等于 0 的秒数时，不启用定时超时，只在 SDK 请求失败后
