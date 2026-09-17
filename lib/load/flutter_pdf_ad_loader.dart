@@ -427,7 +427,6 @@ class FlutterPdfAdLoader<K> {
       ad.fullScreenContentCallback = FullScreenContentCallback<AppOpenAd>(
         onAdShowedFullScreenContent: (_) {
           _dispatchAdShowed(placement, entry.info, entry.ad);
-          unawaited(_preloadReplacementAfterShow(placement, entry));
         },
         onAdDismissedFullScreenContent: (_) async {
           final programmaticClose = _consumeProgrammaticCloseMark(placement);
@@ -479,7 +478,6 @@ class FlutterPdfAdLoader<K> {
       ad.fullScreenContentCallback = FullScreenContentCallback<InterstitialAd>(
         onAdShowedFullScreenContent: (_) {
           _dispatchAdShowed(placement, entry.info, entry.ad);
-          unawaited(_preloadReplacementAfterShow(placement, entry));
         },
         onAdDismissedFullScreenContent: (_) async {
           final programmaticClose = _consumeProgrammaticCloseMark(placement);
@@ -531,7 +529,6 @@ class FlutterPdfAdLoader<K> {
       ad.fullScreenContentCallback = FullScreenContentCallback<RewardedAd>(
         onAdShowedFullScreenContent: (_) {
           _dispatchAdShowed(placement, entry.info, entry.ad);
-          unawaited(_preloadReplacementAfterShow(placement, entry));
         },
         onAdDismissedFullScreenContent: (_) async {
           final programmaticClose = _consumeProgrammaticCloseMark(placement);
@@ -636,38 +633,6 @@ class FlutterPdfAdLoader<K> {
     LoadedAdCacheEntry entry,
   ) {
     return _consumeShownEntryAfterShow(placement, entry, trigger: 'close');
-  }
-
-  Future<void> _preloadReplacementAfterShow(
-    K placement,
-    LoadedAdCacheEntry shownEntry,
-  ) async {
-    if (_skipReloadAfterClosePlacements.contains(placement)) {
-      _log(
-        'skip-preload-after-show',
-        placement,
-        info: shownEntry.info,
-        extra: 'reason=skip-reload-after-close',
-      );
-      return;
-    }
-
-    final configs = _configs[placement] ?? const <AdInfoBean>[];
-    final hasLoadableConfig = configs.any(
-      (config) => config.adId != null && config.parsedAdType != null,
-    );
-    if (!hasLoadableConfig) {
-      _log(
-        'skip-preload-after-show',
-        placement,
-        info: shownEntry.info,
-        extra: 'reason=no-loadable-config',
-      );
-      return;
-    }
-
-    _logCacheReload(placement, trigger: 'showed-preload');
-    await loadPlacement(placement, force: true);
   }
 
   Future<void> dispose() async {
@@ -1301,7 +1266,7 @@ class FlutterPdfAdLoader<K> {
     }
 
     debugPrint(
-      '[FlutterPdfAdLoader] reload-after-show placement=${_placementLabel(placement)} '
+      '[FlutterPdfAdLoader] cache-reload placement=${_placementLabel(placement)} '
       'trigger=$trigger',
     );
   }
@@ -1323,25 +1288,35 @@ class FlutterPdfAdLoader<K> {
 
     await shownEntry.dispose();
 
-    if (entries.isEmpty) {
+    final cacheEmpty = entries.isEmpty;
+    if (cacheEmpty) {
       _cacheMap.remove(placement);
-      final activeRequestCount = _activeRequestCounts[placement] ?? 0;
-      if (activeRequestCount > 0) {
+    }
+
+    final closed = trigger == 'close' || trigger == 'programmatic-close';
+    if (closed && _skipReloadAfterClosePlacements.contains(placement)) {
+      _log('skip-reload-after-close', placement, info: shownEntry.info);
+      return;
+    }
+
+    final activeRequestCount = _activeRequestCounts[placement] ?? 0;
+    if (activeRequestCount > 0) {
+      if (cacheEmpty) {
         _reloadWhenActiveRequestsFinish.add(placement);
-        _log(
-          'cache-empty-await-pending',
-          placement,
-          info: shownEntry.info,
-          extra: 'activeRequestCount=$activeRequestCount',
-        );
-        return;
       }
-      if (trigger == 'close' &&
-          _skipReloadAfterClosePlacements.contains(placement)) {
-        _log('skip-reload-after-close', placement, info: shownEntry.info);
-        return;
-      }
-      _logCacheReload(placement, trigger: 'close-empty-reload');
+      _log(
+        'reload-await-active-request',
+        placement,
+        info: shownEntry.info,
+        extra:
+            'trigger=$trigger cacheEmpty=$cacheEmpty '
+            'activeRequestCount=$activeRequestCount',
+      );
+      return;
+    }
+
+    if (closed || cacheEmpty) {
+      _logCacheReload(placement, trigger: '$trigger-consumed-reload');
       unawaited(loadPlacement(placement, force: true));
       return;
     }
