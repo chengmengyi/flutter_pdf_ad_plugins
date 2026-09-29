@@ -9,6 +9,11 @@ class MethodChannelFlutterPdfAdPlugins extends FlutterPdfAdPluginsPlatform {
   @visibleForTesting
   final methodChannel = const MethodChannel('flutter_pdf_ad_plugins');
 
+  @visibleForTesting
+  final nativeAdHeadlineEventChannel = const EventChannel(
+    'flutter_pdf_ad_plugins/native_ad_headline',
+  );
+
   @override
   Future<String?> getPlatformVersion() async {
     final version = await methodChannel.invokeMethod<String>(
@@ -28,6 +33,13 @@ class MethodChannelFlutterPdfAdPlugins extends FlutterPdfAdPluginsPlatform {
       'layoutName': layoutName,
     });
   }
+
+  @override
+  Stream<Map<String, dynamic>> get nativeAdHeadlineStream =>
+      nativeAdHeadlineEventChannel
+          .receiveBroadcastStream()
+          .where((dynamic event) => event is Map)
+          .map((dynamic event) => Map<String, dynamic>.from(event as Map));
 
   @override
   Future<bool> closeFullScreenAd() async {

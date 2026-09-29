@@ -4,10 +4,13 @@ import android.app.Activity
 import android.app.Application
 import android.content.Context
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import io.flutter.embedding.engine.plugins.FlutterPlugin.FlutterPluginBinding
 import io.flutter.plugins.googlemobileads.GoogleMobileAdsPlugin
 import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
@@ -18,8 +21,12 @@ import java.util.WeakHashMap
 /** FlutterPdfAdPluginsPlugin */
 class FlutterPdfAdPluginsPlugin :
     FlutterPlugin,
-    MethodCallHandler {
+    MethodCallHandler,
+    EventChannel.StreamHandler {
     private lateinit var channel: MethodChannel
+    private lateinit var nativeAdHeadlineEventChannel: EventChannel
+    private var nativeAdHeadlineEventSink: EventChannel.EventSink? = null
+    private val pendingNativeAdHeadlineEvents = ArrayDeque<Map<String, Any?>>()
     private var applicationContext: Context? = null
     private var flutterPluginBinding: FlutterPluginBinding? = null
     private var guideCompactNativeFactory: GuideCompactNativeAdFactory? = null
@@ -92,6 +99,11 @@ class FlutterPdfAdPluginsPlugin :
         application?.registerActivityLifecycleCallbacks(activityLifecycleCallbacks)
         channel = MethodChannel(flutterPluginBinding.binaryMessenger, "flutter_pdf_ad_plugins")
         channel.setMethodCallHandler(this)
+        nativeAdHeadlineEventChannel = EventChannel(
+            flutterPluginBinding.binaryMessenger,
+            "flutter_pdf_ad_plugins/native_ad_headline"
+        )
+        nativeAdHeadlineEventChannel.setStreamHandler(this)
     }
 
     override fun onMethodCall(
@@ -143,13 +155,19 @@ class FlutterPdfAdPluginsPlugin :
         activeActivities.clear()
         adActivities.clear()
         channel.setMethodCallHandler(null)
+        nativeAdHeadlineEventChannel.setStreamHandler(null)
+        nativeAdHeadlineEventSink = null
+        pendingNativeAdHeadlineEvents.clear()
         flutterPluginBinding = null
         applicationContext = null
     }
 
     private fun registerNativeAdFactories(binding: FlutterPluginBinding) {
         if (!guideCompactNativeFactoryRegistered) {
-            val guideFactory = GuideCompactNativeAdFactory(binding.applicationContext)
+            val guideFactory = GuideCompactNativeAdFactory(
+                binding.applicationContext,
+                ::emitNativeAdHeadline
+            )
             guideFactory.layoutName = smallNativeAdLayoutName
             val guideRegistered = GoogleMobileAdsPlugin.registerNativeAdFactory(
                 binding.flutterEngine,
@@ -165,7 +183,10 @@ class FlutterPdfAdPluginsPlugin :
             val fullScreenRegistered = GoogleMobileAdsPlugin.registerNativeAdFactory(
                 binding.flutterEngine,
                 FULL_SCREEN_NATIVE_FACTORY_ID,
-                FullScreenNativeAdFactory(binding.applicationContext)
+                FullScreenNativeAdFactory(
+                    binding.applicationContext,
+                    ::emitNativeAdHeadline
+                )
             )
             if (fullScreenRegistered) {
                 fullScreenNativeFactoryRegistered = true
@@ -199,6 +220,38 @@ class FlutterPdfAdPluginsPlugin :
         try {
             registerNativeAdFactories(binding)
         } catch (_: Throwable) {
+        }
+    }
+
+    override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+        nativeAdHeadlineEventSink = events
+        if (events == null) {
+            return
+        }
+        while (pendingNativeAdHeadlineEvents.isNotEmpty()) {
+            events.success(pendingNativeAdHeadlineEvents.removeFirst())
+        }
+    }
+
+    override fun onCancel(arguments: Any?) {
+        nativeAdHeadlineEventSink = null
+    }
+
+    private fun emitNativeAdHeadline(headline: String?, isNextGenAdmob: Boolean) {
+        val event = mapOf<String, Any?>(
+            "headline" to headline,
+            "isNextGenAdmob" to isNextGenAdmob
+        )
+        Handler(Looper.getMainLooper()).post {
+            val sink = nativeAdHeadlineEventSink
+            if (sink != null) {
+                sink.success(event)
+                return@post
+            }
+            if (pendingNativeAdHeadlineEvents.size >= MAX_PENDING_NATIVE_AD_HEADLINES) {
+                pendingNativeAdHeadlineEvents.removeFirst()
+            }
+            pendingNativeAdHeadlineEvents.addLast(event)
         }
     }
 
@@ -247,6 +300,7 @@ class FlutterPdfAdPluginsPlugin :
     }
 
     companion object {
+        private const val MAX_PENDING_NATIVE_AD_HEADLINES = 16
         const val GUIDE_COMPACT_NATIVE_FACTORY_ID = "guide_compact_native"
         const val FULL_SCREEN_NATIVE_FACTORY_ID = "full_screen_native"
     }

@@ -28,6 +28,11 @@ export 'load/loaded_ad_cache_entry.dart';
 export 'ump/ump_consent_result.dart';
 
 typedef FengKongLogic = bool Function();
+typedef NativeAdHeadlineCallback =
+    FutureOr<void> Function({
+      required String? headline,
+      required bool isNextGenAdmob,
+    });
 
 const String _fullScreenNativeFactoryId = 'full_screen_native';
 
@@ -211,6 +216,8 @@ class FlutterPdfAdPlugins {
   FlutterPdfAdListener? _listener;
   final Set<String> _cmpCountryCodes = <String>{..._defaultCmpCountryCodes};
   FengKongLogic? _fengKongLogic;
+  NativeAdHeadlineCallback? _nativeAdHeadlineCallback;
+  StreamSubscription<Map<String, dynamic>>? _nativeAdHeadlineSubscription;
   String? _smallNativeAdLayoutName;
   AdChoicesPlacement _nativeAdChoicesPlacement =
       AdChoicesPlacement.bottomLeftCorner;
@@ -222,11 +229,14 @@ class FlutterPdfAdPlugins {
   Future<void> initPlugins({
     required String distinctId,
     required FengKongLogic fengKongLogic,
+    required NativeAdHeadlineCallback nativeAdHeadlineCallback,
     String? smallNativeAdLayoutName,
     AdChoicesPlacement nativeAdChoicesPlacement =
         AdChoicesPlacement.bottomLeftCorner,
   }) async {
     _fengKongLogic = fengKongLogic;
+    _nativeAdHeadlineCallback = nativeAdHeadlineCallback;
+    _listenForNativeAdHeadlines();
     _smallNativeAdLayoutName = _normalizeLayoutName(smallNativeAdLayoutName);
     _nativeAdChoicesPlacement = nativeAdChoicesPlacement;
     await FlutterPdfAdPluginsPlatform.instance.configureSmallNativeAdLayout(
@@ -235,6 +245,35 @@ class FlutterPdfAdPlugins {
     unawaited(AdUserGroupManager.instance.getUserGroup());
     unawaited(AdAdjustManager.instance.restore());
     unawaited(AdReferrerManager.instance.restore());
+  }
+
+  void _listenForNativeAdHeadlines() {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return;
+    }
+    _nativeAdHeadlineSubscription ??= FlutterPdfAdPluginsPlatform
+        .instance
+        .nativeAdHeadlineStream
+        .listen(_handleNativeAdHeadline, onError: (_) {});
+  }
+
+  void _handleNativeAdHeadline(Map<String, dynamic> event) {
+    final dynamic rawHeadline = event['headline'];
+    if (rawHeadline != null && rawHeadline is! String) {
+      return;
+    }
+    final NativeAdHeadlineCallback? callback = _nativeAdHeadlineCallback;
+    if (callback == null) {
+      return;
+    }
+    unawaited(
+      Future<void>.sync(
+        () => callback(
+          headline: rawHeadline as String?,
+          isNextGenAdmob: event['isNextGenAdmob'] == true,
+        ),
+      ).catchError((_) {}),
+    );
   }
 
   /// 初始化 Google Mobile Ads SDK。

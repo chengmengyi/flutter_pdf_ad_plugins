@@ -38,6 +38,12 @@ abstract class FlutterPdfAdPluginsPlatform extends PlatformInterface {
     );
   }
 
+  Stream<Map<String, dynamic>> get nativeAdHeadlineStream {
+    throw UnimplementedError(
+      'nativeAdHeadlineStream has not been implemented.',
+    );
+  }
+
   Future<bool> closeFullScreenAd() {
     throw UnimplementedError('closeFullScreenAd() has not been implemented.');
   }
